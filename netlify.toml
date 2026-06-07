@@ -1,0 +1,4 @@
+[build]
+  base    = "game-3d"
+  command = "npm run build"
+  publish = "game-3d/dist"
