@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Adventures With Puppies 3D</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; }
+      body {
+        background: #1a0a2e;
+        font-family: 'Nunito', sans-serif;
+        overflow: hidden;
+      }
+      #game-container {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+      #render-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        outline: none;
+        touch-action: none;
+      }
+      /* Auth overlay */
+      #auth-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: linear-gradient(135deg, #4fc3f7 0%, #81d4fa 40%, #b3e5fc 100%);
+        z-index: 100;
+      }
+      #auth-overlay.hidden { display: none; }
+      .auth-card {
+        background: white;
+        border-radius: 24px;
+        padding: 40px;
+        width: 360px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        text-align: center;
+      }
+      .auth-card h1 {
+        font-size: 26px;
+        font-weight: 800;
+        color: #1565c0;
+        margin-bottom: 4px;
+      }
+      .auth-card .subtitle {
+        font-size: 14px;
+        color: #64b5f6;
+        margin-bottom: 24px;
+      }
+      .paw-logo {
+        font-size: 60px;
+        margin-bottom: 10px;
+        display: block;
+        animation: bounce 1.5s infinite;
+      }
+      @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-8px); }
+      }
+      .auth-tabs {
+        display: flex;
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 18px;
+        border: 2px solid #e3f2fd;
+      }
+      .auth-tab {
+        flex: 1;
+        padding: 10px;
+        border: none;
+        background: #e3f2fd;
+        cursor: pointer;
+        font-family: 'Nunito', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        color: #64b5f6;
+        transition: all 0.2s;
+      }
+      .auth-tab.active { background: #1565c0; color: white; }
+      .auth-input {
+        width: 100%;
+        padding: 11px 14px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 14px;
+        margin-bottom: 10px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .auth-input:focus { border-color: #42a5f5; }
+      .auth-btn {
+        width: 100%;
+        padding: 13px;
+        background: linear-gradient(135deg, #1565c0, #42a5f5);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 16px;
+        font-weight: 800;
+        cursor: pointer;
+        transition: transform 0.1s, opacity 0.2s;
+        margin-top: 4px;
+      }
+      .auth-btn:hover { opacity: 0.9; transform: scale(1.01); }
+      .auth-btn:active { transform: scale(0.99); }
+      .auth-error { color: #e53935; font-size: 13px; margin-top: 8px; min-height: 18px; }
+      .demo-btn {
+        margin-top: 12px;
+        background: none;
+        border: 2px solid #e3f2fd;
+        color: #90caf9;
+        font-size: 13px;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-family: 'Nunito', sans-serif;
+        cursor: pointer;
+        font-weight: 700;
+        display: block;
+        width: 100%;
+      }
+      /* HUD */
+      #hud {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        right: 12px;
+        display: flex;
+        gap: 10px;
+        pointer-events: none;
+        z-index: 50;
+      }
+      #hud.hidden { display: none; }
+      .hud-pill {
+        background: rgba(255,255,255,0.93);
+        border-radius: 20px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 800;
+        font-size: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        color: #1565c0;
+      }
+      .hud-spacer { flex: 1; }
+      .dog-status {
+        background: rgba(255,255,255,0.93);
+        border-radius: 20px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 13px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        color: #1565c0;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      .xp-bar {
+        width: 72px;
+        height: 7px;
+        background: #e3f2fd;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .xp-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #42a5f5, #1565c0);
+        border-radius: 4px;
+        transition: width 0.5s;
+      }
+      /* Zone label */
+      #zone-label {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255,255,255,0.93);
+        padding: 7px 18px;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 13px;
+        color: #1565c0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        z-index: 50;
+        transition: opacity 0.5s;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #zone-label.hidden { opacity: 0; }
+      /* Modal */
+      #modal-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 200;
+      }
+      #modal-overlay.hidden { display: none; }
+      .modal-card {
+        background: white;
+        border-radius: 24px;
+        padding: 28px;
+        width: 420px;
+        max-width: 92vw;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+        animation: popIn 0.18s ease-out;
+      }
+      @keyframes popIn {
+        from { transform: scale(0.85); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
+      .modal-card h2 { font-size: 20px; font-weight: 800; color: #1565c0; margin-bottom: 8px; }
+      .modal-card .fact-text { font-size: 14px; color: #546e7a; line-height: 1.5; margin-bottom: 18px; }
+      .trivia-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+      .trivia-opt {
+        padding: 11px 8px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        background: #f5f9ff;
+        font-family: 'Nunito', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.15s;
+        color: #1565c0;
+        text-align: center;
+      }
+      .trivia-opt:hover { background: #e3f2fd; border-color: #42a5f5; }
+      .trivia-opt.correct { background: #e8f5e9; border-color: #66bb6a; color: #2e7d32; pointer-events: none; }
+      .trivia-opt.wrong { background: #ffebee; border-color: #ef5350; color: #c62828; pointer-events: none; }
+      .modal-close {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #1565c0, #42a5f5);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 15px;
+        font-weight: 800;
+        cursor: pointer;
+        margin-top: 4px;
+      }
+      .dog-card-content { text-align: center; }
+      .dog-emoji { font-size: 64px; margin-bottom: 8px; display: block; }
+      .stage-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 800;
+        margin-bottom: 10px;
+      }
+      .stage-puppy { background: #fff9c4; color: #f57f17; }
+      .stage-adolescent { background: #e8f5e9; color: #2e7d32; }
+      .stage-adult { background: #e8eaf6; color: #283593; }
+      .breed-fact-box {
+        background: #e3f2fd;
+        border-radius: 12px;
+        padding: 12px 14px;
+        text-align: left;
+        font-size: 13px;
+        color: #1565c0;
+        line-height: 1.5;
+        margin-bottom: 14px;
+      }
+      .shop-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+      .shop-tab {
+        padding: 7px 14px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        background: #f5f9ff;
+        font-family: 'Nunito', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        color: #1565c0;
+      }
+      .shop-tab.active { background: #1565c0; color: white; border-color: #1565c0; }
+      .shop-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        max-height: 240px;
+        overflow-y: auto;
+        margin-bottom: 14px;
+      }
+      .shop-item {
+        padding: 10px 6px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.15s;
+        font-size: 12px;
+        font-weight: 700;
+        color: #1565c0;
+      }
+      .shop-item:hover { border-color: #42a5f5; background: #e3f2fd; }
+      .shop-item.owned { background: #e8f5e9; border-color: #66bb6a; color: #2e7d32; }
+      .shop-item .item-icon { font-size: 26px; display: block; margin-bottom: 4px; }
+      .shop-item .item-price { font-size: 11px; color: #546e7a; margin-top: 2px; }
+      .shop-msg { font-size: 13px; color: #546e7a; text-align: center; margin-bottom: 10px; min-height: 18px; }
+      /* Interact hint */
+      #interact-hint {
+        position: absolute;
+        bottom: 56px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255,255,255,0.95);
+        padding: 5px 16px;
+        border-radius: 14px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #1565c0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        z-index: 50;
+        pointer-events: none;
+        animation: pulse 1.5s infinite;
+        white-space: nowrap;
+      }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+      #interact-hint.hidden { display: none; }
+      /* Controls hint (3D-specific) */
+      #controls-hint {
+        position: absolute;
+        top: 60px;
+        right: 12px;
+        background: rgba(255,255,255,0.93);
+        padding: 10px 14px;
+        border-radius: 14px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #1565c0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        z-index: 50;
+        pointer-events: none;
+        line-height: 1.6;
+      }
+      #controls-hint.hidden { display: none; }
+      /* Zoom controls (3D) */
+      #zoom-controls {
+        position: absolute;
+        bottom: 16px;
+        left: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255,255,255,0.93);
+        border-radius: 16px;
+        padding: 8px 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        z-index: 50;
+      }
+      #zoom-controls.hidden { display: none; }
+      .zoom-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: none;
+        background: linear-gradient(135deg, #1565c0, #42a5f5);
+        color: white;
+        font-family: 'Nunito', sans-serif;
+        font-size: 22px;
+        font-weight: 800;
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(21,101,192,0.3);
+        transition: transform 0.1s;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .zoom-btn:hover { transform: scale(1.05); }
+      .zoom-btn:active { transform: scale(0.95); }
+      .zoom-label {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0;
+        color: #1565c0;
+        font-weight: 800;
+        font-size: 11px;
+        line-height: 1.2;
+        text-align: center;
+      }
+      .zoom-label .zoom-emoji { font-size: 16px; }
+      .zoom-label .zoom-text { font-size: 10px; opacity: 0.85; }
+      .zoom-label .zoom-pct { font-size: 12px; color: #0d47a1; }
+      /* Streak badge */
+      #streak-badge {
+        background: rgba(255,255,255,0.93);
+        border-radius: 20px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 800;
+        font-size: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        color: #e65100;
+      }
+      /* Season indicator */
+      #season-indicator {
+        background: rgba(255,255,255,0.93);
+        border-radius: 20px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 800;
+        font-size: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        color: #2e7d32;
+      }
+      /* HUD buttons (daily challenge, achievements, parent dashboard) */
+      #hud button {
+        background: rgba(255,255,255,0.93);
+        border: none;
+        border-radius: 20px;
+        padding: 8px 14px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 15px;
+        font-weight: 800;
+        color: #1565c0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        cursor: pointer;
+        pointer-events: auto;
+        transition: transform 0.1s, opacity 0.2s;
+      }
+      #hud button:hover { opacity: 0.9; transform: scale(1.05); }
+      #hud button:active { transform: scale(0.95); }
+      #daily-challenge-btn.complete {
+        opacity: 0.6;
+        color: #2e7d32;
+      }
+      /* Notification area */
+      .toast-notification {
+        background: rgba(21,101,192,0.93);
+        color: white;
+        border-radius: 20px;
+        padding: 10px 20px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 14px;
+        font-weight: 800;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        margin-bottom: 8px;
+        animation: toastIn 0.2s ease-out;
+        text-align: center;
+        white-space: nowrap;
+      }
+      @keyframes toastIn {
+        from { transform: translateY(-10px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      /* Minimap (3D) */
+      #minimap-3d {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        width: 200px;
+        height: 184px;
+        background: rgba(255,255,255,0.92);
+        border-radius: 12px;
+        border: 2px solid rgba(21,101,192,0.5);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+        z-index: 50;
+        pointer-events: none;
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      #minimap-3d.hidden { display: none; }
+      #minimap-3d .mm-title {
+        font-size: 11px;
+        font-weight: 800;
+        color: #1565c0;
+        margin: 2px 0 3px 0;
+      }
+      #minimap-3d svg {
+        width: 192px;
+        height: 160px;
+        border-radius: 8px;
+        background: #a5d6a7;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-container">
+      <canvas id="render-canvas"></canvas>
+
+      <!-- Auth screen -->
+      <div id="auth-overlay">
+        <div class="auth-card">
+          <span class="paw-logo">🐾</span>
+          <h1>Adventures With Puppies 3D</h1>
+          <div class="subtitle">Explore in 3D, learn, and raise your puppy!</div>
+          <div class="auth-tabs">
+            <button class="auth-tab active" onclick="showTab('login')">Log In</button>
+            <button class="auth-tab" onclick="showTab('register')">Sign Up</button>
+          </div>
+          <div id="login-form">
+            <input class="auth-input" id="login-email" type="email" placeholder="Email" autocomplete="email" />
+            <input class="auth-input" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+            <button class="auth-btn" id="login-btn" onclick="handleLogin()">Let's Play!</button>
+          </div>
+          <div id="register-form" style="display:none">
+            <input class="auth-input" id="reg-username" type="text" placeholder="Display name (e.g. PuppyLover123)" maxlength="20" />
+            <input class="auth-input" id="reg-email" type="email" placeholder="Your email" autocomplete="email" />
+            <input class="auth-input" id="reg-password" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" />
+            <button class="auth-btn" id="register-btn" onclick="handleRegister()">Create Account!</button>
+          </div>
+          <div class="auth-error" id="auth-error"></div>
+          <button class="demo-btn" onclick="handleDemoMode()">Play Demo (no account needed)</button>
+        </div>
+      </div>
+
+      <!-- HUD -->
+      <div id="hud" class="hidden">
+        <div class="hud-pill">🦴 <span id="hud-bones">0</span></div>
+        <div class="hud-pill">🪙 <span id="hud-coins">0</span></div>
+        <div class="hud-spacer"></div>
+        <div class="dog-status" onclick="openDogCard()">
+          <span id="hud-dog-emoji">🐶</span>
+          <div>
+            <div id="hud-dog-name" style="font-size:12px;line-height:1.2">My Puppy</div>
+            <div class="xp-bar"><div class="xp-fill" id="xp-fill" style="width:10%"></div></div>
+          </div>
+        </div>
+        <div class="hud-pill" onclick="openFriends()" style="pointer-events:auto;cursor:pointer" title="Friends Online (Demo)">🌐</div>
+        <div class="hud-pill" onclick="openShop()" style="pointer-events:auto;cursor:pointer">🏪</div>
+        <div id="streak-badge" style="display:none">🔥 <span id="streak-count">0</span></div>
+        <div id="season-indicator">🌸 Spring</div>
+        <button id="daily-challenge-btn" onclick="window.openDailyChallenge && window.openDailyChallenge()">📅 Daily</button>
+        <button id="achievements-btn" onclick="window.openAchievements && window.openAchievements()">🏆</button>
+        <button id="parent-btn" onclick="window.openParentDashboard && window.openParentDashboard()">🔒</button>
+      </div>
+
+      <!-- Notification area (achievement toasts, top-center) -->
+      <div id="notification-area" style="position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:1000;pointer-events:none;"></div>
+
+      <!-- Zoom controls (bottom-left) -->
+      <div id="zoom-controls" class="hidden">
+        <button class="zoom-btn" onclick="zoomIn()" title="Zoom in (+)">+</button>
+        <div class="zoom-label">
+          <span class="zoom-emoji">🔍</span>
+          <span class="zoom-text">Zoom</span>
+          <span class="zoom-pct" id="zoom-percent">50%</span>
+        </div>
+        <button class="zoom-btn" onclick="zoomOut()" title="Zoom out (−)">−</button>
+      </div>
+
+      <!-- Controls hint -->
+      <div id="controls-hint" class="hidden">
+        WASD / Arrows = Move<br>
+        Mouse drag = Orbit camera<br>
+        + / − = Zoom in/out<br>
+        E = Interact
+      </div>
+
+      <!-- Zone label -->
+      <div id="zone-label" class="hidden"></div>
+      <!-- Interact hint -->
+      <div id="interact-hint" class="hidden"></div>
+
+      <!-- Minimap -->
+      <div id="minimap-3d" class="hidden">
+        <div class="mm-title">🗺️ Map</div>
+        <svg viewBox="0 0 192 160" id="minimap-svg" xmlns="http://www.w3.org/2000/svg">
+          <!-- Ocean strip (north) -->
+          <rect x="0" y="0" width="192" height="38" fill="#4fc3f7"/>
+          <!-- Dock -->
+          <rect x="76" y="22" width="26" height="26" fill="#9c7a4d"/>
+          <!-- Neighborhood (main green land) -->
+          <rect x="10" y="42" width="172" height="64" fill="#a5d6a7"/>
+          <!-- Dog Park -->
+          <circle cx="48" cy="74" r="14" fill="#66bb6a"/>
+          <!-- Indoor Dog Park -->
+          <rect x="132" y="78" width="22" height="18" fill="#ce93d8"/>
+          <!-- Downtown -->
+          <rect x="22" y="108" width="148" height="22" fill="#b0bec5"/>
+          <!-- Friend's Place -->
+          <rect x="92" y="132" width="30" height="20" fill="#ffcc80"/>
+          <!-- Player dot (animated by JS) -->
+          <circle id="minimap-player-halo" cx="96" cy="80" r="5" fill="#ffffff"/>
+          <circle id="minimap-player" cx="96" cy="80" r="4" fill="#e53935"/>
+        </svg>
+      </div>
+
+      <!-- Modal overlay -->
+      <div id="modal-overlay" class="hidden">
+        <div class="modal-card" id="modal-card"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+    <script>
+      function showTab(tab) {
+        document.querySelectorAll('.auth-tab').forEach((t, i) => {
+          t.classList.toggle('active', (tab === 'login') ? i === 0 : i === 1);
+        });
+        document.getElementById('login-form').style.display = tab === 'login' ? 'block' : 'none';
+        document.getElementById('register-form').style.display = tab === 'register' ? 'block' : 'none';
+        document.getElementById('auth-error').textContent = '';
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Adventures With Puppies</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        background: #1a0a2e;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        font-family: 'Nunito', sans-serif;
+        overflow: hidden;
+      }
+      #game-container {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+      #game-container canvas {
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+      }
+      /* Auth overlay */
+      #auth-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: linear-gradient(135deg, #4fc3f7 0%, #81d4fa 40%, #b3e5fc 100%);
+        z-index: 100;
+      }
+      #auth-overlay.hidden { display: none; }
+      .auth-card {
+        background: white;
+        border-radius: 24px;
+        padding: 40px;
+        width: 360px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        text-align: center;
+      }
+      .auth-card h1 {
+        font-size: 26px;
+        font-weight: 800;
+        color: #1565c0;
+        margin-bottom: 4px;
+      }
+      .auth-card .subtitle {
+        font-size: 14px;
+        color: #64b5f6;
+        margin-bottom: 24px;
+      }
+      .paw-logo {
+        font-size: 60px;
+        margin-bottom: 10px;
+        display: block;
+        animation: bounce 1.5s infinite;
+      }
+      @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-8px); }
+      }
+      .auth-tabs {
+        display: flex;
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 18px;
+        border: 2px solid #e3f2fd;
+      }
+      .auth-tab {
+        flex: 1;
+        padding: 10px;
+        border: none;
+        background: #e3f2fd;
+        cursor: pointer;
+        font-family: 'Nunito', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        color: #64b5f6;
+        transition: all 0.2s;
+      }
+      .auth-tab.active { background: #1565c0; color: white; }
+      .auth-input {
+        width: 100%;
+        padding: 11px 14px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 14px;
+        margin-bottom: 10px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .auth-input:focus { border-color: #42a5f5; }
+      .auth-btn {
+        width: 100%;
+        padding: 13px;
+        background: linear-gradient(135deg, #1565c0, #42a5f5);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 16px;
+        font-weight: 800;
+        cursor: pointer;
+        transition: transform 0.1s, opacity 0.2s;
+        margin-top: 4px;
+      }
+      .auth-btn:hover { opacity: 0.9; transform: scale(1.01); }
+      .auth-btn:active { transform: scale(0.99); }
+      .auth-error { color: #e53935; font-size: 13px; margin-top: 8px; min-height: 18px; }
+      .demo-btn {
+        margin-top: 12px;
+        background: none;
+        border: 2px solid #e3f2fd;
+        color: #90caf9;
+        font-size: 13px;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-family: 'Nunito', sans-serif;
+        cursor: pointer;
+        font-weight: 700;
+        display: block;
+        width: 100%;
+      }
+      /* HUD */
+      #hud {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        right: 12px;
+        display: flex;
+        gap: 10px;
+        pointer-events: none;
+        z-index: 50;
+      }
+      #hud.hidden { display: none; }
+      .hud-pill {
+        background: rgba(255,255,255,0.93);
+        border-radius: 20px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 800;
+        font-size: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        color: #1565c0;
+      }
+      .hud-spacer { flex: 1; }
+      .dog-status {
+        background: rgba(255,255,255,0.93);
+        border-radius: 20px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 13px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        color: #1565c0;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      .xp-bar {
+        width: 72px;
+        height: 7px;
+        background: #e3f2fd;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .xp-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #42a5f5, #1565c0);
+        border-radius: 4px;
+        transition: width 0.5s;
+      }
+      /* Zone label */
+      #zone-label {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255,255,255,0.93);
+        padding: 7px 18px;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 13px;
+        color: #1565c0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        z-index: 50;
+        transition: opacity 0.5s;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #zone-label.hidden { opacity: 0; }
+      /* Modal */
+      #modal-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 200;
+      }
+      #modal-overlay.hidden { display: none; }
+      .modal-card {
+        background: white;
+        border-radius: 24px;
+        padding: 28px;
+        width: 420px;
+        max-width: 92vw;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+        animation: popIn 0.18s ease-out;
+      }
+      @keyframes popIn {
+        from { transform: scale(0.85); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
+      .modal-card h2 { font-size: 20px; font-weight: 800; color: #1565c0; margin-bottom: 8px; }
+      .modal-card .fact-text { font-size: 14px; color: #546e7a; line-height: 1.5; margin-bottom: 18px; }
+      .trivia-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+      .trivia-opt {
+        padding: 11px 8px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        background: #f5f9ff;
+        font-family: 'Nunito', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.15s;
+        color: #1565c0;
+        text-align: center;
+      }
+      .trivia-opt:hover { background: #e3f2fd; border-color: #42a5f5; }
+      .trivia-opt.correct { background: #e8f5e9; border-color: #66bb6a; color: #2e7d32; pointer-events: none; }
+      .trivia-opt.wrong { background: #ffebee; border-color: #ef5350; color: #c62828; pointer-events: none; }
+      .modal-close {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #1565c0, #42a5f5);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 15px;
+        font-weight: 800;
+        cursor: pointer;
+        margin-top: 4px;
+      }
+      .dog-card-content { text-align: center; }
+      .dog-emoji { font-size: 64px; margin-bottom: 8px; display: block; }
+      .stage-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 800;
+        margin-bottom: 10px;
+      }
+      .stage-puppy { background: #fff9c4; color: #f57f17; }
+      .stage-adolescent { background: #e8f5e9; color: #2e7d32; }
+      .stage-adult { background: #e8eaf6; color: #283593; }
+      .breed-fact-box {
+        background: #e3f2fd;
+        border-radius: 12px;
+        padding: 12px 14px;
+        text-align: left;
+        font-size: 13px;
+        color: #1565c0;
+        line-height: 1.5;
+        margin-bottom: 14px;
+      }
+      .shop-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+      .shop-tab {
+        padding: 7px 14px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        background: #f5f9ff;
+        font-family: 'Nunito', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        color: #1565c0;
+      }
+      .shop-tab.active { background: #1565c0; color: white; border-color: #1565c0; }
+      .shop-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        max-height: 240px;
+        overflow-y: auto;
+        margin-bottom: 14px;
+      }
+      .shop-item {
+        padding: 10px 6px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.15s;
+        font-size: 12px;
+        font-weight: 700;
+        color: #1565c0;
+      }
+      .shop-item:hover { border-color: #42a5f5; background: #e3f2fd; }
+      .shop-item.owned { background: #e8f5e9; border-color: #66bb6a; color: #2e7d32; }
+      .shop-item .item-icon { font-size: 26px; display: block; margin-bottom: 4px; }
+      .shop-item .item-price { font-size: 11px; color: #546e7a; margin-top: 2px; }
+      .shop-msg { font-size: 13px; color: #546e7a; text-align: center; margin-bottom: 10px; min-height: 18px; }
+      /* Interact hint */
+      #interact-hint {
+        position: absolute;
+        bottom: 56px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255,255,255,0.95);
+        padding: 5px 16px;
+        border-radius: 14px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #1565c0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        z-index: 50;
+        pointer-events: none;
+        animation: pulse 1.5s infinite;
+        white-space: nowrap;
+      }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+      #interact-hint.hidden { display: none; }
+      /* Friend approval modal */
+      .approval-code-input {
+        width: 100%;
+        padding: 14px;
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 24px;
+        font-weight: 800;
+        text-align: center;
+        letter-spacing: 8px;
+        margin-bottom: 12px;
+        outline: none;
+      }
+      .approval-code-input:focus { border-color: #42a5f5; }
+    </style>
+  </head>
+  <body>
+    <div id="game-container">
+      <!-- Auth screen -->
+      <div id="auth-overlay">
+        <div class="auth-card">
+          <span class="paw-logo">🐾</span>
+          <h1>Adventures With Puppies</h1>
+          <div class="subtitle">Explore, learn, and raise your puppy!</div>
+          <div class="auth-tabs">
+            <button class="auth-tab active" onclick="showTab('login')">Log In</button>
+            <button class="auth-tab" onclick="showTab('register')">Sign Up</button>
+          </div>
+          <div id="login-form">
+            <input class="auth-input" id="login-email" type="email" placeholder="Email" autocomplete="email" />
+            <input class="auth-input" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+            <button class="auth-btn" id="login-btn" onclick="handleLogin()">Let's Play!</button>
+          </div>
+          <div id="register-form" style="display:none">
+            <input class="auth-input" id="reg-username" type="text" placeholder="Display name (e.g. PuppyLover123)" maxlength="20" />
+            <input class="auth-input" id="reg-email" type="email" placeholder="Your email" autocomplete="email" />
+            <input class="auth-input" id="reg-parent-email" type="email" placeholder="Parent's email (for friend approvals)" />
+            <input class="auth-input" id="reg-password" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" />
+            <button class="auth-btn" id="register-btn" onclick="handleRegister()">Create Account!</button>
+          </div>
+          <div class="auth-error" id="auth-error"></div>
+          <button class="demo-btn" onclick="handleDemoMode()">Play Demo (no account needed)</button>
+        </div>
+      </div>
+
+      <!-- HUD -->
+      <div id="hud" class="hidden">
+        <div class="hud-pill">🦴 <span id="hud-bones">0</span></div>
+        <div class="hud-pill">🪙 <span id="hud-coins">0</span></div>
+        <div class="hud-spacer"></div>
+        <div class="dog-status" onclick="openDogCard()">
+          <span id="hud-dog-emoji">🐶</span>
+          <div>
+            <div id="hud-dog-name" style="font-size:12px;line-height:1.2">My Puppy</div>
+            <div class="xp-bar"><div class="xp-fill" id="xp-fill" style="width:10%"></div></div>
+          </div>
+        </div>
+        <div class="hud-pill" onclick="openShop()" style="pointer-events:auto;cursor:pointer">🏪</div>
+      </div>
+
+      <!-- Zone label -->
+      <div id="zone-label" class="hidden"></div>
+      <!-- Interact hint -->
+      <div id="interact-hint" class="hidden"></div>
+
+      <!-- Modal overlay -->
+      <div id="modal-overlay" class="hidden">
+        <div class="modal-card" id="modal-card"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+    <script>
+      function showTab(tab) {
+        document.querySelectorAll('.auth-tab').forEach((t, i) => {
+          t.classList.toggle('active', (tab === 'login') ? i === 0 : i === 1);
+        });
+        document.getElementById('login-form').style.display = tab === 'login' ? 'block' : 'none';
+        document.getElementById('register-form').style.display = tab === 'register' ? 'block' : 'none';
+        document.getElementById('auth-error').textContent = '';
+      }
+    </script>
+  </body>
+</html>
