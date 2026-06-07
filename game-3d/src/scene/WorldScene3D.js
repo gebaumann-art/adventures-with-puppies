@@ -546,21 +546,36 @@ export class WorldScene3D {
     this._minimapHalo.setAttribute('r', (pulse + 1).toFixed(2));
   }
 
-  // World-fixed WASD movement. W always = -Z (north toward ocean), S = +Z
-  // (south toward Friend's Place), A = -X (west toward Dog Park),
-  // D = +X (east toward Indoor Dog Park). Movement is independent of camera
-  // orientation, so orbiting the camera with the mouse never changes which
-  // direction WASD takes the dog. The dog still rotates smoothly to face
-  // the move direction.
+  // Camera-relative WASD movement.
+  // W/S move forward/backward relative to the camera's current facing direction;
+  // A/D strafe left/right relative to it.  Orbiting the camera with the mouse
+  // rotates the reference frame so the keys always feel intuitive.
+  // The dog still rotates smoothly to face the actual move direction.
   _moveDog(dt) {
-    let dx = 0, dz = 0;
-    if (this.keys.up)    dz += 1; // W → north (+Z, toward ocean)
-    if (this.keys.down)  dz -= 1; // S → south (-Z, toward Friend's Place)
-    if (this.keys.left)  dx -= 1; // A → west (-X)
-    if (this.keys.right) dx += 1; // D → east (+X)
-    if (dx === 0 && dz === 0) return false;
+    let inputFwd = 0, inputRight = 0;
+    if (this.keys.up)    inputFwd   += 1;
+    if (this.keys.down)  inputFwd   -= 1;
+    if (this.keys.left)  inputRight -= 1;
+    if (this.keys.right) inputRight += 1;
+    if (inputFwd === 0 && inputRight === 0) return false;
 
-    const moveDir = new Vector3(dx, 0, dz);
+    // Derive horizontal forward/right vectors from the camera's alpha angle.
+    // ArcRotateCamera stores the azimuth as `alpha`; the camera sits at
+    //   (target.x + r·sin(β)·cos(α),  …,  target.z + r·sin(β)·sin(α))
+    // so the forward direction (camera → target, projected to XZ) is:
+    //   fwd = (-cos(α), 0, -sin(α))
+    //   rgt = (-sin(α), 0,  cos(α))   ← up × fwd
+    const alpha  = this.camera.alpha;
+    const fwdX   = -Math.cos(alpha);
+    const fwdZ   = -Math.sin(alpha);
+    const rgtX   = -Math.sin(alpha);
+    const rgtZ   =  Math.cos(alpha);
+
+    const moveDir = new Vector3(
+      inputFwd * fwdX + inputRight * rgtX,
+      0,
+      inputFwd * fwdZ + inputRight * rgtZ,
+    );
     moveDir.normalize();
 
     const step = PLAYER_SPEED * dt;
