@@ -47,6 +47,12 @@ import { openTreasureDigGame }  from '../ui/TreasureDigGame.js';
 import { openGroomingGame }     from '../ui/GroomingGame.js';
 import { PetCareSystem } from '../systems/PetCareSystem.js';
 import { PetCareHUD }    from '../ui/PetCareHUD.js';
+import { OceanLife }     from './OceanLife.js';
+import { IndoorDogParkInterior } from './IndoorDogParkInterior.js';
+import { openFishingGame } from '../ui/FishingGame.js';
+import { openDanceGame }   from '../ui/DanceGame.js';
+import { openBakeryGame }  from '../ui/BakeryGame.js';
+import { openDogWashGame } from '../ui/DogWashGame.js';
 
 // 2D trivia spot coordinates (from the original WorldScene.js) — we map them
 // into 3D the same way we map bone spawns, so the layouts match.
@@ -101,7 +107,11 @@ const SPECIAL_ZONES_3D = [
   { id: 'digsite',       x: -30, z: -135,color: [0.85, 0.75, 0.55], icon: '⛏️', label: '⛏️ Press E to start digging!' },
   { id: 'beach',         x: 60,  z: 110, color: [0.98, 0.92, 0.50], icon: '🏖️', label: '🏖️ Press E to play at the beach' },
   { id: 'garden',        x: 110, z: 20,  color: [0.50, 0.85, 0.40], icon: '🌱', label: '🌱 Press E to visit the garden' },
-  { id: 'feed_dog',      x: 6,   z: 52,  color: [1.00, 0.55, 0.10], icon: '🍖', label: '🍖 Press E to feed your puppy!' },
+  { id: 'feed_dog',            x: 6,   z: 52,  color: [1.00, 0.55, 0.10], icon: '🍖', label: '🍖 Press E to feed your puppy!' },
+  { id: 'enter_indoor_dog_park', x: 80,  z: 4,   color: [0.78, 0.51, 0.86], icon: '🏋️', label: '🏋️ Press E to enter the Indoor Dog Park' },
+  { id: 'dance_party',         x: -90, z: 5,   color: [1.00, 0.41, 0.71], icon: '🎵', label: '🎵 Press E for Dance Party!' },
+  { id: 'bakery_game',         x: 30,  z: -44, color: [1.00, 0.76, 0.30], icon: '🥐', label: '🥐 Press E to bake dog treats!' },
+  { id: 'dog_wash',            x: 115, z: 25,  color: [0.40, 0.80, 1.00], icon: '🛁', label: '🛁 Press E to wash your puppy!' },
 ];
 
 export class WorldScene3D {
@@ -139,6 +149,12 @@ export class WorldScene3D {
     // Pet care (Tamagotchi-lite needs system)
     this.petCare = null;
     this.petCareHUD = null;
+    // Ocean life (fish + dolphins)
+    this.oceanLife = null;
+    // Indoor Dog Park walkable interior
+    this.indoorDogParkInterior = null;
+    // Water entry tracking (for splash effect)
+    this._wasInWater = false;
   }
 
   start() {
@@ -261,6 +277,10 @@ export class WorldScene3D {
     this.dogShowArena = new DogShowArena(this.scene);
     this.dogShowArena.build();
     this.dogShowArena.hide();
+
+    // ── Ocean life (fish schools + dolphins) ─────────────────────
+    this.oceanLife = new OceanLife(this.scene);
+    this.oceanLife.build();
 
     // ── Pet care (Tamagotchi-lite) ────────────────────────────────
     this.petCare = new PetCareSystem(this.gameState);
@@ -468,6 +488,19 @@ export class WorldScene3D {
     if (this.dayNight) this.dayNight.update(dt);
     if (this.seasons) this.seasons.update(dt);
 
+    // Ocean life (fish + dolphins) — always animating.
+    if (this.oceanLife) this.oceanLife.update(dt);
+
+    // Water splash when the dog enters the ocean zone.
+    if (!this.inInterior) {
+      const dp = this.dog.position;
+      const inWater = dp.z > 92 && dp.z < 155 && Math.abs(dp.x) < 80;
+      if (inWater && !this._wasInWater) {
+        if (this.particles) this.particles.waterSplash(dp);
+      }
+      this._wasInWater = inWater;
+    }
+
     // Pet care drain — runs every frame so needs deplete even during modals.
     if (this.petCare) this.petCare.update(dt);
 
@@ -503,6 +536,33 @@ export class WorldScene3D {
         this.nearestInteractable = { kind: 'exit_house' };
         this.nearestInteractableKind = 'exit_house';
         showInteractHint('🏠 Press E to go outside');
+      } else {
+        this.nearestInteractable = null;
+        this.nearestInteractableKind = null;
+        hideInteractHint();
+      }
+      return;
+    }
+
+    // ── Indoor Dog Park interior ─────────────────────────────────────
+    if (this.indoorDogParkInterior) {
+      this.indoorDogParkInterior.update(_dt);
+      if (this.indoorDogParkInterior.isNearExit()) {
+        this.nearestInteractable = { kind: 'exit_dogpark' };
+        this.nearestInteractableKind = 'exit_dogpark';
+        showInteractHint('🏋️ Press E to go outside');
+      } else if (this.indoorDogParkInterior.isNearObstacleCourse()) {
+        this.nearestInteractable = { kind: 'dogpark_obstacle' };
+        this.nearestInteractableKind = 'dogpark_obstacle';
+        showInteractHint('🏃 Press E for the Obstacle Course!');
+      } else if (this.indoorDogParkInterior.isNearBallPit()) {
+        this.nearestInteractable = { kind: 'dogpark_ballpit' };
+        this.nearestInteractableKind = 'dogpark_ballpit';
+        showInteractHint('⚽ Press E to play in the Ball Pit!');
+      } else if (this.indoorDogParkInterior.isNearTreatBar()) {
+        this.nearestInteractable = { kind: 'dogpark_treats' };
+        this.nearestInteractableKind = 'dogpark_treats';
+        showInteractHint('🦴 Press E for a treat!');
       } else {
         this.nearestInteractable = null;
         this.nearestInteractableKind = null;
@@ -750,6 +810,14 @@ export class WorldScene3D {
       this._exitHouse();
     } else if (this.nearestInteractableKind === 'vet_exam') {
       this._openGroomingGame();
+    } else if (this.nearestInteractableKind === 'exit_dogpark') {
+      this._exitIndoorDogPark();
+    } else if (this.nearestInteractableKind === 'dogpark_obstacle') {
+      this._openObstacleMiniGame();
+    } else if (this.nearestInteractableKind === 'dogpark_ballpit') {
+      this._dogParkBallPit();
+    } else if (this.nearestInteractableKind === 'dogpark_treats') {
+      this._dogParkTreat();
     } else if (this.nearestInteractableKind === 'npc_chat') {
       this._openNPCChat(this.nearestInteractable);
     }
@@ -815,6 +883,26 @@ export class WorldScene3D {
     // Food bowl — instantly fill hunger, show a friendly label.
     if (zone.id === 'feed_dog') {
       this._feedDog();
+      return;
+    }
+    // Indoor Dog Park — walkable interior (same pattern as vet).
+    if (zone.id === 'enter_indoor_dog_park') {
+      this._enterIndoorDogPark();
+      return;
+    }
+    // Dance Party mini-game
+    if (zone.id === 'dance_party') {
+      this._openDanceGame();
+      return;
+    }
+    // Bakery baking game
+    if (zone.id === 'bakery_game') {
+      this._openBakeryGame();
+      return;
+    }
+    // Dog wash bubble-pop game
+    if (zone.id === 'dog_wash') {
+      this._openDogWashGame();
       return;
     }
 
@@ -1007,22 +1095,13 @@ export class WorldScene3D {
         const u = Math.min(1, t / 0.35);
         rodPivot.rotation.x = 1.05 - 1.8 * u;
         if (u >= 1) {
-          // Done — hide gear, open the modal which awards bones on click.
+          // Done — hide gear, open the visual fishing game.
           line.setEnabled(false);
           bobber.setEnabled(false);
           scene.unregisterBeforeRender(tick);
-          // Open the fishing modal; on close, dispose the rod.
-          this.modalOpen = true; // already true, but be safe
-          document.getElementById('modal-overlay').classList.remove('hidden');
-          this._openFishingModal(location);
-          // Hook into closeModal to cleanup the rod once the modal is dismissed.
-          const origClose = this.closeModal.bind(this);
-          this.closeModal = (...args) => {
-            cleanup();
-            // Restore original method
-            this.closeModal = origClose;
-            return origClose(...args);
-          };
+          // FishingGame creates its own full-screen overlay — no modal-overlay needed.
+          this.modalOpen = true;
+          this._startFishingGame(location, cleanup);
           return;
         }
       }
@@ -1382,7 +1461,13 @@ export class WorldScene3D {
       return;
     }
 
-    // 5b. House interior → step back outside
+    // 5b. Indoor Dog Park interior → step back outside
+    if (this.indoorDogParkInterior) {
+      this._exitIndoorDogPark();
+      return;
+    }
+
+    // 5c. House interior → step back outside
     if (this.inInterior) {
       this._exitHouse();
       return;
@@ -1467,6 +1552,142 @@ export class WorldScene3D {
     });
   }
 
+  // ── Indoor Dog Park interior scene swap ───────────────────────────────────
+  _enterIndoorDogPark() {
+    if (this.inInterior) return;
+    this._savedOutdoorState = {
+      camAlpha:      this.camera.alpha,
+      camBeta:       this.camera.beta,
+      camRadius:     this.camera.radius,
+      camLowerRadius: this.camera.lowerRadiusLimit,
+      camUpperRadius: this.camera.upperRadiusLimit,
+      camUpperBeta:  this.camera.upperBetaLimit,
+      bounds:        this.bounds,
+      dogPos:        this.dog.position.clone(),
+      dogRotY:       this.dog.rotation.y,
+    };
+
+    this.indoorDogParkInterior = new IndoorDogParkInterior(this.scene, this.gameState);
+    this.indoorDogParkInterior.enter(this.dog, this.camera, () => this._exitIndoorDogPark());
+
+    // Camera for 32×32 room (ROOM_HALF=16)
+    this.camera.lowerRadiusLimit = 10;
+    this.camera.upperRadiusLimit = 40;
+    this.camera.radius = 30;
+    this.camera.upperBetaLimit = Math.PI / 2.3;
+    this.camera.alpha = -Math.PI / 2;
+    this.camera.beta = Math.PI / 4;
+    this.camera.target.set(this.dog.position.x, this.dog.position.y + 1.5, this.dog.position.z);
+    this.bounds = 15; // ROOM_HALF - 1
+
+    this.inInterior = true;
+    hideInteractHint();
+    showZoneLabel('🏋️ Indoor Dog Park (Inside)');
+  }
+
+  _exitIndoorDogPark() {
+    if (!this.inInterior || !this.indoorDogParkInterior) return;
+    this.indoorDogParkInterior.exit();
+    this.indoorDogParkInterior = null;
+
+    const s = this._savedOutdoorState;
+    if (s) {
+      this.camera.lowerRadiusLimit = s.camLowerRadius;
+      this.camera.upperRadiusLimit = s.camUpperRadius;
+      this.camera.upperBetaLimit   = s.camUpperBeta;
+      this.camera.alpha  = s.camAlpha;
+      this.camera.beta   = s.camBeta;
+      this.camera.radius = s.camRadius;
+      this.bounds        = s.bounds;
+    }
+    // Place the dog just outside the south door of the building.
+    this.dog.position.set(80, 0, 5);
+    this.dog.rotation.y = Math.PI;
+
+    this.inInterior = false;
+    this._exitHintShown = false;
+    hideInteractHint();
+    showZoneLabel('🌞 Back outside!');
+    this._savedOutdoorState = null;
+  }
+
+  // ── Visual fishing mini-game ───────────────────────────────────────────────
+  _startFishingGame(location, animCleanup) {
+    openFishingGame(this.gameState, location, ({ caught, bones, xp }) => {
+      if (bones) addBones(this.gameState, bones);
+      if (xp)    addXP(this.gameState.currentDog, xp);
+      if (caught && caught.length > 0) {
+        if (this.petCare) this.petCare.onHappened();   // fishing = fun!
+        checkAchievements(this.gameState, { event: 'fish_caught', value: caught.length });
+      }
+      updateDogHUD(this.gameState);
+      this._saveSoon();
+      if (animCleanup) animCleanup();
+      this.modalOpen = false;
+    });
+  }
+
+  // ── New mini-games ────────────────────────────────────────────────────────
+  _openDanceGame() {
+    this.modalOpen = true;
+    openDanceGame(this.gameState, ({ stars = 0, coins = 0, bones = 0 } = {}) => {
+      if (coins) addCoins(this.gameState, coins);
+      if (bones) addBones(this.gameState, bones);
+      addXP(this.gameState.currentDog, (stars || 1) * 10);
+      if (this.petCare && stars > 0) this.petCare.onHappened();
+      updateDogHUD(this.gameState);
+      checkAchievements(this.gameState, { event: 'dance_complete', value: stars });
+      this._saveSoon();
+      this.modalOpen = false;
+    });
+  }
+
+  _openBakeryGame() {
+    this.modalOpen = true;
+    openBakeryGame(this.gameState, ({ stars = 0, coins = 0, bones = 0 } = {}) => {
+      if (coins) addCoins(this.gameState, coins);
+      if (bones) addBones(this.gameState, bones);
+      addXP(this.gameState.currentDog, (stars || 1) * 8);
+      if (this.petCare) { this.petCare.onFed(); this.petCare.onHappened(); }
+      updateDogHUD(this.gameState);
+      checkAchievements(this.gameState, { event: 'baking_complete', value: stars });
+      this._saveSoon();
+      this.modalOpen = false;
+    });
+  }
+
+  _openDogWashGame() {
+    this.modalOpen = true;
+    openDogWashGame(this.gameState, ({ washed = false, happiness = 0, coins = 0 } = {}) => {
+      if (coins) addCoins(this.gameState, coins);
+      addXP(this.gameState.currentDog, 12);
+      if (this.petCare && washed)     this.petCare.onTrained();   // grooming = care
+      if (this.petCare && happiness)  this.petCare.onHappened();
+      updateDogHUD(this.gameState);
+      checkAchievements(this.gameState, { event: 'bath_complete', value: 1 });
+      this._saveSoon();
+      this.modalOpen = false;
+    });
+  }
+
+  // ── Indoor Dog Park interactables ─────────────────────────────────────────
+  _dogParkBallPit() {
+    if (this.petCare) this.petCare.onHappened();
+    if (this.particles) this.particles.achievementPop(this.dog.position);
+    addXP(this.gameState.currentDog, 5);
+    updateDogHUD(this.gameState);
+    this._saveSoon();
+    showZoneLabel('⚽ Ball pit! Your puppy is having a blast! 😄');
+  }
+
+  _dogParkTreat() {
+    if (this.petCare) this.petCare.onFed();
+    addXP(this.gameState.currentDog, 3);
+    updateDogHUD(this.gameState);
+    this._saveSoon();
+    showZoneLabel('🦴 Yum! Treat time! 🐕');
+  }
+
   // ── Feed the dog — fills hunger bar instantly ──────────────────────────────
   _feedDog() {
     if (this.petCare) {
@@ -1511,6 +1732,7 @@ export class WorldScene3D {
     if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp);
     if (this.dayNight) this.dayNight.dispose();
     if (this.seasons) this.seasons.stop();
+    if (this.oceanLife) this.oceanLife.dispose();
     if (this.engine) this.engine.dispose();
   }
 }

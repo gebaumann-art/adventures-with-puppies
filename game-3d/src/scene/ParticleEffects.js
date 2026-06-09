@@ -232,6 +232,34 @@ export class ParticleEffects {
     this._rainbowMesh = null;
   }
 
+  // ── Water splash — blue/white droplets burst upward (25 p, 0.6 s) ───
+
+  waterSplash(position) {
+    burstAt('waterSplash', 25, this._scene, position, 600, ps => {
+      // Bright water blues and white foam
+      ps.color1    = new Color4(0.40, 0.75, 1.0,  1.0);
+      ps.color2    = new Color4(0.80, 0.94, 1.0,  1.0);
+      ps.colorDead = new Color4(0.60, 0.85, 1.0,  0.0);
+
+      ps.minSize = 0.10;
+      ps.maxSize = 0.28;
+      ps.minLifeTime = 0.25;
+      ps.maxLifeTime = 0.60;
+
+      // Burst upward and sideways like a splash
+      ps.direction1 = new Vector3(-3.0,  3.0, -3.0);
+      ps.direction2 = new Vector3( 3.0,  8.0,  3.0);
+
+      ps.gravity = new Vector3(0, -14.0, 0);
+      ps.minEmitPower = 1.0;
+      ps.maxEmitPower = 3.5;
+      ps.minAngularSpeed = -Math.PI;
+      ps.maxAngularSpeed =  Math.PI;
+      ps.updateSpeed = 0.016;
+      ps.emitRate = 150;
+    });
+  }
+
   // ── Achievement pop — multi-color stars burst (40 p, 1.2 s) ─────────
 
   achievementPop(position) {
