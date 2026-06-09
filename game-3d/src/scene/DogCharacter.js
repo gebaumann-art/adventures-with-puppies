@@ -72,7 +72,7 @@ export class DogCharacter {
     whiteMat.diffuseColor = new Color3(1, 1, 1);
 
     const pinkMat = new StandardMaterial('pinkMat', scene);
-    pinkMat.diffuseColor = new Color3(1.0, 0.55, 0.65);
+    pinkMat.diffuseColor = new Color3(0.95, 0.15, 0.20);  // bright red tongue
 
     const redMat = new StandardMaterial('collarMat', scene);
     redMat.diffuseColor = new Color3(0.85, 0.08, 0.08);
@@ -113,8 +113,8 @@ export class DogCharacter {
     this.head.material = this._furMat;
     this.head.parent = r;
 
-    // Snout
-    this.snout = MeshBuilder.CreateSphere('dogSnout', { diameter: 1.0, segments: 10 }, scene);
+    // Snout — keep it smaller than the head so the nose can protrude
+    this.snout = MeshBuilder.CreateSphere('dogSnout', { diameter: 0.62, segments: 10 }, scene);
     this.snout.scaling = new Vector3(0.95, 0.72, 1.15);
     this.snout.position = new Vector3(0, 1.24, 1.22);
     this.snout.material = this._furMat;
@@ -127,15 +127,16 @@ export class DogCharacter {
     jaw.material = this._earMat;
     jaw.parent = r;
 
-    // Nose
+    // Nose — positioned forward of the snout tip so it clearly protrudes
+    // Snout tip ≈ z 1.22 + (0.62/2 * 1.15) = 1.576; nose at 1.60 sticks out
     const nose = MeshBuilder.CreateSphere('dogNose', { diameter: 0.22, segments: 10 }, scene);
-    nose.position = new Vector3(0, 1.33, 1.46);
+    nose.position = new Vector3(0, 1.30, 1.60);
     nose.material = darkMat;
     nose.parent = r;
 
     // Nose glint
     const noseGlint = MeshBuilder.CreateSphere('noseGlint', { diameter: 0.07, segments: 6 }, scene);
-    noseGlint.position = new Vector3(-0.04, 1.37, 1.48);
+    noseGlint.position = new Vector3(-0.04, 1.34, 1.62);
     noseGlint.material = whiteMat;
     noseGlint.parent = r;
 
@@ -183,9 +184,9 @@ export class DogCharacter {
     this.earR.material = this._earMat;
     this.earR.parent = r;
 
-    // ── Tongue ────────────────────────────────────────────────────────
-    this.tongue = MeshBuilder.CreateBox('tongue', { width: 0.20, height: 0.06, depth: 0.26 }, scene);
-    this.tongue.position = new Vector3(0, 1.10, 1.30);
+    // ── Tongue — poking out past the jaw ─────────────────────────────
+    this.tongue = MeshBuilder.CreateBox('tongue', { width: 0.18, height: 0.07, depth: 0.30 }, scene);
+    this.tongue.position = new Vector3(0, 1.06, 1.58);
     this.tongue.material = pinkMat;
     this.tongue.parent = r;
 
@@ -335,11 +336,11 @@ export class DogCharacter {
       const nod = Math.max(0, Math.sin(this._barkT * Math.PI / 0.16));
       this.head.position.z   = 0.78 + nod * 0.14;
       this.snout.position.z  = 1.22 + nod * 0.14;
-      this.tongue.position.z = 1.30 + nod * 0.14;
+      this.tongue.position.z = 1.58 + nod * 0.14;
       if (this._barkT > 0.42) {
         this.head.position.z   = 0.78;
         this.snout.position.z  = 1.22;
-        this.tongue.position.z = 1.30;
+        this.tongue.position.z = 1.58;
         this._barkActive = false;
       }
     }
