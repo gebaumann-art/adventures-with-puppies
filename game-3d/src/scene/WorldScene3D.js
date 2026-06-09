@@ -120,8 +120,12 @@ export class WorldScene3D {
     this.gameState = gameState;
     this.hooks = hooks;
     this.modalOpen = false;
-    this.keys = { up: false, down: false, left: false, right: false, e: false };
+    this.keys = { up: false, down: false, left: false, right: false, e: false, space: false, b: false };
     this.lastE = false;
+    this._lastSpace = false;
+    this._lastB = false;
+    // Outdoor dog park interactive balls
+    this._outdoorBalls = [];  // { mesh, vx, vz }
     this.triviaSpots = [];
     this.specialZones = [];
     this.lastZoneId = null;
@@ -278,6 +282,9 @@ export class WorldScene3D {
     this.dogShowArena.build();
     this.dogShowArena.hide();
 
+    // ── Outdoor dog park balls (near x=-70, z=20) ────────────────
+    this._buildOutdoorBalls();
+
     // ── Ocean life (fish schools + dolphins) ─────────────────────
     this.oceanLife = new OceanLife(this.scene);
     this.oceanLife.build();
@@ -418,8 +425,10 @@ export class WorldScene3D {
       if (k === 'a' || k === 'arrowleft')  this.keys.left = true;
       if (k === 'd' || k === 'arrowright') this.keys.right = true;
       if (k === 'e' || k === 'enter')      this.keys.e = true;
-      // Prevent the page from scrolling on arrow keys.
-      if (['arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
+      if (e.code === 'Space')              this.keys.space = true;
+      if (k === 'b')                       this.keys.b = true;
+      // Prevent the page from scrolling on arrow keys and space.
+      if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
     };
     this._onKeyUp = (e) => {
       const k = e.key.toLowerCase();
@@ -428,6 +437,8 @@ export class WorldScene3D {
       if (k === 'a' || k === 'arrowleft')  this.keys.left = false;
       if (k === 'd' || k === 'arrowright') this.keys.right = false;
       if (k === 'e' || k === 'enter')      this.keys.e = false;
+      if (e.code === 'Space')              this.keys.space = false;
+      if (k === 'b')                       this.keys.b = false;
     };
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
@@ -442,8 +453,8 @@ export class WorldScene3D {
     if (!this.modalOpen) {
       moving = this._moveDog(dt);
       // Keep the dog on top of elevated surfaces (dock, bridge).
-      // Run every frame so the dog descends smoothly when stepping off too.
-      if (!this.inInterior) {
+      // Skip while hopping so the hop arc isn't overridden by ground-snapping.
+      if (!this.inInterior && !this.dog._hopActive) {
         const gy = this._getGroundY(this.dog.position.x, this.dog.position.z);
         this.dog.position.y += (gy - this.dog.position.y) * Math.min(1, dt * 15);
       }
@@ -459,6 +470,27 @@ export class WorldScene3D {
 
     // Always animate the dog (so idle breathing happens during modals too).
     this.dog.update(dt, moving);
+
+    // ── Space bar hop (edge-triggered) ────────────────────────────
+    if (!this.modalOpen) {
+      const hopPressed = this.keys.space && !this._lastSpace;
+      this._lastSpace = this.keys.space;
+      if (hopPressed && this.dog.startHop) this.dog.startHop();
+
+      // ── B key bark (edge-triggered) ───────────────────────────
+      const barkPressed = this.keys.b && !this._lastB;
+      this._lastB = this.keys.b;
+      if (barkPressed) {
+        if (this.dog.doBark) this.dog.doBark();
+        showZoneLabel('🐕 WOOF! WOOF!');
+        if (this.petCare) this.petCare.onHappened();  // barking = happiness
+      }
+    }
+
+    // ── Outdoor dog park ball physics ────────────────────────────
+    if (!this.inInterior && this._outdoorBalls.length > 0) {
+      this._updateOutdoorBalls(dt);
+    }
 
     // Bobble the trivia markers & special-zone icons (outdoor only).
     const t = performance.now() / 1000;
@@ -1550,6 +1582,74 @@ export class WorldScene3D {
       this._saveSoon();
       this.modalOpen = false;
     });
+  }
+
+  // ── Outdoor dog park balls ────────────────────────────────────────────────
+  _buildOutdoorBalls() {
+    const colors = [
+      new Color3(0.95, 0.25, 0.25),  // red
+      new Color3(0.25, 0.55, 0.95),  // blue
+      new Color3(0.25, 0.88, 0.35),  // green
+      new Color3(0.98, 0.88, 0.10),  // yellow
+      new Color3(0.90, 0.35, 0.88),  // purple
+      new Color3(1.00, 0.55, 0.10),  // orange
+      new Color3(1.00, 0.75, 0.85),  // pink
+      new Color3(0.15, 0.90, 0.88),  // teal
+    ];
+    // Scatter 8 balls in the outdoor dog park area (center ~x=-70, z=20)
+    const positions = [
+      [-68, 21], [-72, 18], [-66, 24], [-74, 22],
+      [-69, 16], [-63, 19], [-75, 17], [-70, 25],
+    ];
+    positions.forEach(([bx, bz], i) => {
+      const ball = MeshBuilder.CreateSphere(`outdoorBall_${i}`, {
+        diameter: 0.55, segments: 10,
+      }, this.scene);
+      ball.position = new Vector3(bx, 0.28, bz);
+      ball.isPickable = false;
+      const bMat = new StandardMaterial(`outdoorBallMat_${i}`, this.scene);
+      bMat.diffuseColor = colors[i % colors.length];
+      bMat.specularColor = new Color3(0.2, 0.2, 0.2);
+      ball.material = bMat;
+      this._outdoorBalls.push({ mesh: ball, vx: 0, vz: 0 });
+    });
+  }
+
+  _updateOutdoorBalls(dt) {
+    const dp = this.dog.position;
+    const PUSH_RADIUS = 1.4;
+    const PUSH_FORCE  = 10.0;
+    const FRICTION    = 0.87;
+    const MAX_SPEED   = 6.0;
+    // Park boundary (roughly)
+    const MIN_X = -84, MAX_X = -58, MIN_Z = 8, MAX_Z = 32;
+
+    for (const b of this._outdoorBalls) {
+      const m = b.mesh;
+      if (!m || m.isDisposed()) continue;
+      const dx = m.position.x - dp.x;
+      const dz = m.position.z - dp.z;
+      const dist2 = dx * dx + dz * dz;
+      if (dist2 < PUSH_RADIUS * PUSH_RADIUS && dist2 > 0.001) {
+        const dist = Math.sqrt(dist2);
+        b.vx += (dx / dist) * PUSH_FORCE * dt;
+        b.vz += (dz / dist) * PUSH_FORCE * dt;
+      }
+      const speed = Math.sqrt(b.vx * b.vx + b.vz * b.vz);
+      if (speed > MAX_SPEED) { const s = MAX_SPEED / speed; b.vx *= s; b.vz *= s; }
+      let nx = m.position.x + b.vx * dt;
+      let nz = m.position.z + b.vz * dt;
+      if (nx < MIN_X) { nx = MIN_X; b.vx = Math.abs(b.vx) * 0.5; }
+      if (nx > MAX_X) { nx = MAX_X; b.vx = -Math.abs(b.vx) * 0.5; }
+      if (nz < MIN_Z) { nz = MIN_Z; b.vz = Math.abs(b.vz) * 0.5; }
+      if (nz > MAX_Z) { nz = MAX_Z; b.vz = -Math.abs(b.vz) * 0.5; }
+      m.position.x = nx;
+      m.position.z = nz;
+      m.rotation.x += b.vz * dt * 2.2;
+      m.rotation.z -= b.vx * dt * 2.2;
+      b.vx *= FRICTION;
+      b.vz *= FRICTION;
+    }
   }
 
   // ── Indoor Dog Park interior scene swap ───────────────────────────────────

@@ -1,7 +1,7 @@
-// DogCharacter — a cute, Minecraft-style puppy built from spheres & cylinders.
-// The whole dog is parented to a TransformNode (root) so the scene can move
-// and rotate the dog as a unit. Per-frame animation (legs swinging, tail wag,
-// body bounce, idle breathing) is driven from update(dt, isMoving).
+// DogCharacter — a cartoon puppy built from Babylon.js primitives.
+// All parts are parented to this.root (a TransformNode) so the entire dog
+// moves and rotates as one unit. Per-frame animation (legs, tail, ears, body
+// bounce, hop, bark) is driven from update(dt, isMoving).
 import {
   MeshBuilder,
   StandardMaterial,
@@ -16,8 +16,19 @@ export class DogCharacter {
     this.scene = scene;
     this.breedId = breedId;
     this.root = new TransformNode('dogRoot', scene);
-    this.walkPhase = 0;     // increments while moving — drives leg swing
-    this.idlePhase = 0;     // increments always — drives breathing/tail
+    this.walkPhase = 0;
+    this.idlePhase = 0;
+
+    // Hop state
+    this._hopActive = false;
+    this._hopT = 0;
+    this._hopDuration = 0.40;
+    this._hopBaseY = 0;
+
+    // Bark state
+    this._barkActive = false;
+    this._barkT = 0;
+
     this.build();
   }
 
@@ -31,190 +42,323 @@ export class DogCharacter {
     return new Color3(r, g, b);
   }
 
-  // Build the dog mesh hierarchy. Everything is parented under this.root so
-  // moving/rotating the root moves the whole dog.
+  // Build the full dog mesh hierarchy.
   build() {
     const scene = this.scene;
-    const fur = new StandardMaterial('furMat', scene);
-    fur.diffuseColor = this._breedColor();
-    fur.specularColor = new Color3(0.05, 0.05, 0.05);
+    const fc = this._breedColor();
 
-    const dark = new StandardMaterial('darkMat', scene);
-    dark.diffuseColor = new Color3(0.12, 0.08, 0.05);
+    // ── Shared materials (stored so setBreed can update them) ─────────
+    this._furMat = new StandardMaterial('furMat', scene);
+    this._furMat.diffuseColor = fc;
+    this._furMat.specularColor = new Color3(0.12, 0.12, 0.12);
 
-    const white = new StandardMaterial('whiteMat', scene);
-    white.diffuseColor = new Color3(1, 1, 1);
+    this._bellyMat = new StandardMaterial('bellyMat', scene);
+    this._bellyMat.diffuseColor = new Color3(
+      Math.min(1, fc.r * 1.25 + 0.15),
+      Math.min(1, fc.g * 1.25 + 0.15),
+      Math.min(1, fc.b * 1.10 + 0.15)
+    );
+    this._bellyMat.specularColor = new Color3(0.08, 0.08, 0.08);
 
-    const pink = new StandardMaterial('pinkMat', scene);
-    pink.diffuseColor = new Color3(1, 0.6, 0.7);
+    this._earMat = new StandardMaterial('earMat', scene);
+    this._earMat.diffuseColor = new Color3(fc.r * 0.75, fc.g * 0.75, fc.b * 0.75);
+    this._earMat.specularColor = new Color3(0.05, 0.05, 0.05);
 
-    // ── Body (a slightly elongated sphere) ────────────────────────
-    this.body = MeshBuilder.CreateSphere('dogBody', { diameter: 1.4, segments: 12 }, scene);
-    this.body.scaling = new Vector3(1, 0.85, 1.5);
-    this.body.position = new Vector3(0, 1.1, 0);
-    this.body.material = fur;
-    this.body.parent = this.root;
+    const darkMat = new StandardMaterial('darkMat', scene);
+    darkMat.diffuseColor = new Color3(0.10, 0.06, 0.04);
+    darkMat.specularColor = new Color3(0.15, 0.15, 0.15);
 
-    // ── Head ──────────────────────────────────────────────────────
-    this.head = MeshBuilder.CreateSphere('dogHead', { diameter: 1.0, segments: 12 }, scene);
-    this.head.position = new Vector3(0, 1.5, 1.1);
-    this.head.material = fur;
-    this.head.parent = this.root;
+    const whiteMat = new StandardMaterial('whiteMat', scene);
+    whiteMat.diffuseColor = new Color3(1, 1, 1);
+
+    const pinkMat = new StandardMaterial('pinkMat', scene);
+    pinkMat.diffuseColor = new Color3(1.0, 0.55, 0.65);
+
+    const redMat = new StandardMaterial('collarMat', scene);
+    redMat.diffuseColor = new Color3(0.85, 0.08, 0.08);
+    redMat.emissiveColor = new Color3(0.20, 0.00, 0.00);
+
+    const goldMat = new StandardMaterial('tagMat', scene);
+    goldMat.diffuseColor = new Color3(0.90, 0.78, 0.20);
+    goldMat.emissiveColor = new Color3(0.18, 0.14, 0.02);
+
+    const r = this.root;
+
+    // ── Body ──────────────────────────────────────────────────────────
+    this.body = MeshBuilder.CreateSphere('dogBody', { diameter: 1.5, segments: 14 }, scene);
+    this.body.scaling = new Vector3(1.05, 0.92, 1.65);
+    this.body.position = new Vector3(0, 0.72, 0);
+    this.body.material = this._furMat;
+    this.body.parent = r;
+
+    // Underbelly — lighter, slightly lower
+    const belly = MeshBuilder.CreateSphere('dogBelly', { diameter: 1.5, segments: 12 }, scene);
+    belly.scaling = new Vector3(0.85, 0.48, 1.30);
+    belly.position = new Vector3(0, 0.46, 0.05);
+    belly.material = this._bellyMat;
+    belly.parent = r;
+
+    // ── Neck ──────────────────────────────────────────────────────────
+    const neck = MeshBuilder.CreateCylinder('dogNeck', {
+      height: 0.38, diameterTop: 0.50, diameterBottom: 0.62, tessellation: 10,
+    }, scene);
+    neck.position = new Vector3(0, 1.06, 0.48);
+    neck.rotation.x = -0.30;
+    neck.material = this._furMat;
+    neck.parent = r;
+
+    // ── Head ──────────────────────────────────────────────────────────
+    this.head = MeshBuilder.CreateSphere('dogHead', { diameter: 1.08, segments: 14 }, scene);
+    this.head.position = new Vector3(0, 1.38, 0.78);
+    this.head.material = this._furMat;
+    this.head.parent = r;
 
     // Snout
-    const snout = MeshBuilder.CreateSphere('snout', { diameter: 0.55, segments: 10 }, scene);
-    snout.scaling = new Vector3(1, 0.7, 1.2);
-    snout.position = new Vector3(0, 1.35, 1.55);
-    snout.material = fur;
-    snout.parent = this.root;
+    this.snout = MeshBuilder.CreateSphere('dogSnout', { diameter: 1.0, segments: 10 }, scene);
+    this.snout.scaling = new Vector3(0.95, 0.72, 1.15);
+    this.snout.position = new Vector3(0, 1.24, 1.22);
+    this.snout.material = this._furMat;
+    this.snout.parent = r;
+
+    // Jaw
+    const jaw = MeshBuilder.CreateSphere('dogJaw', { diameter: 1.0, segments: 10 }, scene);
+    jaw.scaling = new Vector3(0.85, 0.50, 1.00);
+    jaw.position = new Vector3(0, 1.12, 1.20);
+    jaw.material = this._earMat;
+    jaw.parent = r;
 
     // Nose
-    const nose = MeshBuilder.CreateSphere('nose', { diameter: 0.18, segments: 8 }, scene);
-    nose.position = new Vector3(0, 1.42, 1.82);
-    nose.material = dark;
-    nose.parent = this.root;
+    const nose = MeshBuilder.CreateSphere('dogNose', { diameter: 0.22, segments: 10 }, scene);
+    nose.position = new Vector3(0, 1.33, 1.46);
+    nose.material = darkMat;
+    nose.parent = r;
 
-    // Eyes (white + pupils)
-    const eyeL = MeshBuilder.CreateSphere('eyeL', { diameter: 0.22, segments: 8 }, scene);
-    eyeL.position = new Vector3(-0.22, 1.7, 1.4);
-    eyeL.material = white;
-    eyeL.parent = this.root;
-    const eyeR = eyeL.clone('eyeR');
-    eyeR.position.x = 0.22;
+    // Nose glint
+    const noseGlint = MeshBuilder.CreateSphere('noseGlint', { diameter: 0.07, segments: 6 }, scene);
+    noseGlint.position = new Vector3(-0.04, 1.37, 1.48);
+    noseGlint.material = whiteMat;
+    noseGlint.parent = r;
 
-    const pupilL = MeshBuilder.CreateSphere('pupilL', { diameter: 0.1, segments: 8 }, scene);
-    pupilL.position = new Vector3(-0.22, 1.7, 1.5);
-    pupilL.material = dark;
-    pupilL.parent = this.root;
-    const pupilR = pupilL.clone('pupilR');
-    pupilR.position.x = 0.22;
+    // ── Eyes ──────────────────────────────────────────────────────────
+    const eyeL = MeshBuilder.CreateSphere('eyeL', { diameter: 0.30, segments: 10 }, scene);
+    eyeL.position = new Vector3(-0.26, 1.54, 1.10);
+    eyeL.material = whiteMat;
+    eyeL.parent = r;
 
-    // Ears — floppy triangles using elongated boxes
-    this.earL = MeshBuilder.CreateBox('earL', { width: 0.3, height: 0.55, depth: 0.1 }, scene);
-    this.earL.position = new Vector3(-0.42, 1.9, 0.95);
-    this.earL.rotation.z = 0.4;
-    this.earL.material = fur;
-    this.earL.parent = this.root;
-    this.earR = this.earL.clone('earR');
-    this.earR.position.x = 0.42;
-    this.earR.rotation.z = -0.4;
+    const eyeR = MeshBuilder.CreateSphere('eyeR', { diameter: 0.30, segments: 10 }, scene);
+    eyeR.position = new Vector3(0.26, 1.54, 1.10);
+    eyeR.material = whiteMat;
+    eyeR.parent = r;
 
-    // Tongue (small pink box poking out)
-    const tongue = MeshBuilder.CreateBox('tongue', { width: 0.18, height: 0.05, depth: 0.2 }, scene);
-    tongue.position = new Vector3(0, 1.25, 1.78);
-    tongue.material = pink;
-    tongue.parent = this.root;
+    const pupilL = MeshBuilder.CreateSphere('pupilL', { diameter: 0.18, segments: 8 }, scene);
+    pupilL.position = new Vector3(-0.24, 1.52, 1.18);
+    pupilL.material = darkMat;
+    pupilL.parent = r;
 
-    // ── Legs (4 cylinders, animated by rotating around shoulder/hip) ─
-    // Each leg is parented to a small TransformNode at the shoulder/hip,
-    // which makes the leg swing forward/back like a hinge.
+    const pupilR = MeshBuilder.CreateSphere('pupilR', { diameter: 0.18, segments: 8 }, scene);
+    pupilR.position = new Vector3(0.24, 1.52, 1.18);
+    pupilR.material = darkMat;
+    pupilR.parent = r;
+
+    const shineL = MeshBuilder.CreateSphere('shineL', { diameter: 0.07, segments: 6 }, scene);
+    shineL.position = new Vector3(-0.20, 1.55, 1.20);
+    shineL.material = whiteMat;
+    shineL.parent = r;
+
+    const shineR = MeshBuilder.CreateSphere('shineR', { diameter: 0.07, segments: 6 }, scene);
+    shineR.position = new Vector3(0.20, 1.55, 1.20);
+    shineR.material = whiteMat;
+    shineR.parent = r;
+
+    // ── Ears ──────────────────────────────────────────────────────────
+    this.earL = MeshBuilder.CreateBox('earL', { width: 0.28, height: 0.62, depth: 0.12 }, scene);
+    this.earL.position = new Vector3(-0.46, 1.52, 0.62);
+    this.earL.rotation = new Vector3(-0.18, 0, 0.38);
+    this.earL.material = this._earMat;
+    this.earL.parent = r;
+
+    this.earR = MeshBuilder.CreateBox('earR', { width: 0.28, height: 0.62, depth: 0.12 }, scene);
+    this.earR.position = new Vector3(0.46, 1.52, 0.62);
+    this.earR.rotation = new Vector3(-0.18, 0, -0.38);
+    this.earR.material = this._earMat;
+    this.earR.parent = r;
+
+    // ── Tongue ────────────────────────────────────────────────────────
+    this.tongue = MeshBuilder.CreateBox('tongue', { width: 0.20, height: 0.06, depth: 0.26 }, scene);
+    this.tongue.position = new Vector3(0, 1.10, 1.30);
+    this.tongue.material = pinkMat;
+    this.tongue.parent = r;
+
+    // ── Collar ────────────────────────────────────────────────────────
+    const collar = MeshBuilder.CreateTorus('collar', {
+      diameter: 0.70, thickness: 0.12, tessellation: 16,
+    }, scene);
+    collar.position = new Vector3(0, 0.96, 0.38);
+    collar.rotation.x = -0.30;
+    collar.material = redMat;
+    collar.parent = r;
+
+    // Collar tag
+    const tag = MeshBuilder.CreateCylinder('collarTag', {
+      height: 0.04, diameter: 0.14, tessellation: 12,
+    }, scene);
+    tag.position = new Vector3(0, 0.83, 0.60);
+    tag.material = goldMat;
+    tag.parent = r;
+
+    // ── Legs ──────────────────────────────────────────────────────────
     this.legs = [];
-    const legPositions = [
-      { name: 'frontL', x: -0.42, z: 0.65 },
-      { name: 'frontR', x: 0.42,  z: 0.65 },
-      { name: 'backL',  x: -0.42, z: -0.65 },
-      { name: 'backR',  x: 0.42,  z: -0.65 },
+    const legDefs = [
+      { name: 'frontL', x: -0.48, z: 0.60 },
+      { name: 'frontR', x:  0.48, z: 0.60 },
+      { name: 'backL',  x: -0.48, z: -0.62 },
+      { name: 'backR',  x:  0.48, z: -0.62 },
     ];
-    legPositions.forEach((cfg, i) => {
-      const pivot = new TransformNode(`legPivot_${cfg.name}`, scene);
-      pivot.parent = this.root;
-      pivot.position = new Vector3(cfg.x, 0.85, cfg.z);
 
-      const leg = MeshBuilder.CreateCylinder(`leg_${cfg.name}`, {
-        height: 0.85, diameter: 0.28,
-      }, scene);
-      // Move the leg DOWN from the pivot so rotation pivots at the top.
-      leg.position = new Vector3(0, -0.425, 0);
-      leg.material = fur;
-      leg.parent = pivot;
-
-      // Paw (a darker sphere at the bottom of each leg)
-      const paw = MeshBuilder.CreateSphere(`paw_${cfg.name}`, { diameter: 0.32, segments: 8 }, scene);
-      paw.position = new Vector3(0, -0.85, 0.05);
-      paw.material = dark;
-      paw.parent = pivot;
-
-      // Front legs swing opposite to back legs for a natural trot.
+    legDefs.forEach((cfg, i) => {
       const isFront = i < 2;
       const isLeft = (i % 2) === 0;
-      this.legs.push({ pivot, phaseOffset: isFront === isLeft ? 0 : Math.PI });
+
+      // Shoulder/hip bump
+      const bump = MeshBuilder.CreateSphere(`bump_${cfg.name}`, { diameter: 0.42, segments: 8 }, scene);
+      bump.position = new Vector3(cfg.x, 0.75, cfg.z);
+      bump.material = this._furMat;
+      bump.parent = r;
+
+      // Pivot node at top of leg
+      const pivot = new TransformNode(`legPivot_${cfg.name}`, scene);
+      pivot.parent = r;
+      pivot.position = new Vector3(cfg.x, 0.72, cfg.z);
+
+      // Upper leg cylinder
+      const leg = MeshBuilder.CreateCylinder(`leg_${cfg.name}`, {
+        height: 0.72, diameterTop: 0.34, diameterBottom: 0.22, tessellation: 8,
+      }, scene);
+      leg.position = new Vector3(0, -0.36, 0);
+      leg.material = this._furMat;
+      leg.parent = pivot;
+
+      // Paw — flattened sphere
+      const paw = MeshBuilder.CreateSphere(`paw_${cfg.name}`, { diameter: 0.34, segments: 8 }, scene);
+      paw.scaling.y = 0.55;
+      paw.position = new Vector3(0, -0.72, 0.06);
+      paw.material = darkMat;
+      paw.parent = pivot;
+
+      // Diagonal pair in phase: frontL+backR=0, frontR+backL=PI
+      const phaseOffset = (isFront === isLeft) ? 0 : Math.PI;
+      this.legs.push({ pivot, phaseOffset });
     });
 
-    // ── Tail (cylinder + pivot for wagging) ───────────────────────
+    // ── Tail ──────────────────────────────────────────────────────────
     this.tailPivot = new TransformNode('tailPivot', scene);
-    this.tailPivot.parent = this.root;
-    this.tailPivot.position = new Vector3(0, 1.3, -0.9);
+    this.tailPivot.parent = r;
+    this.tailPivot.position = new Vector3(0, 0.90, -0.92);
 
     const tail = MeshBuilder.CreateCylinder('tail', {
-      height: 0.6, diameterTop: 0.1, diameterBottom: 0.18,
+      height: 0.62, diameterTop: 0.08, diameterBottom: 0.22, tessellation: 8,
     }, scene);
-    tail.material = fur;
-    // Tail sticks up-and-back from the pivot.
-    tail.position = new Vector3(0, 0.3, -0.1);
-    tail.rotation.x = -0.6;
+    tail.position = new Vector3(0, 0.31, -0.08);
+    tail.rotation.x = -0.55;
+    tail.material = this._furMat;
     tail.parent = this.tailPivot;
 
-    // The root is positioned in world space — start at the origin and let
-    // WorldScene3D place it.
-    this.root.position = new Vector3(0, 0, 0);
+    // Fluffy tip
+    const tailTip = MeshBuilder.CreateSphere('tailTip', { diameter: 0.22, segments: 8 }, scene);
+    tailTip.position = new Vector3(0, 0.62, -0.18);
+    tailTip.material = this._bellyMat;
+    tailTip.parent = this.tailPivot;
   }
 
-  // Update animation. dt is seconds since last frame; isMoving controls
-  // whether legs trot or just gently breathe.
+  // Trigger a hop — root Y arcs up then returns over _hopDuration seconds.
+  startHop() {
+    if (this._hopActive) return;
+    this._hopBaseY = this.root.position.y;
+    this._hopT = 0;
+    this._hopActive = true;
+  }
+
+  // Quick double head-nod bark animation.
+  doBark() {
+    this._barkActive = true;
+    this._barkT = 0;
+  }
+
+  // Per-frame animation. dt = seconds since last frame.
   update(dt, isMoving) {
     this.idlePhase += dt;
     if (isMoving) this.walkPhase += dt * 9;
 
-    // Tail wag — faster + wider when moving, gentler when idle.
+    // ── Tail wag ──────────────────────────────────────────────────────
     const wagSpeed = isMoving ? 10 : 3.5;
-    const wagAmt = isMoving ? 0.6 : 0.25;
+    const wagAmt   = isMoving ?  0.6 : 0.25;
     this.tailPivot.rotation.y = Math.sin(this.idlePhase * wagSpeed) * wagAmt;
 
-    // Body bounce — small vertical bob while walking.
+    // ── Body bounce / breathing ───────────────────────────────────────
     if (isMoving) {
-      this.body.position.y = 1.1 + Math.sin(this.walkPhase * 2) * 0.05;
+      this.body.position.y = 0.72 + Math.sin(this.walkPhase * 2) * 0.055;
     } else {
-      // Idle breathing — slow scale on body.
       const breath = 1 + Math.sin(this.idlePhase * 2) * 0.02;
-      this.body.scaling.y = 0.85 * breath;
-      this.body.position.y = 1.1;
+      this.body.scaling.y = 0.92 * breath;
+      this.body.position.y = 0.72;
     }
 
-    // Ears bounce slightly while running.
+    // ── Ears bob ──────────────────────────────────────────────────────
     const earBob = isMoving ? Math.sin(this.walkPhase * 2) * 0.15 : 0;
-    this.earL.rotation.z = 0.4 + earBob;
-    this.earR.rotation.z = -0.4 - earBob;
+    this.earL.rotation.z =  0.38 + earBob;
+    this.earR.rotation.z = -0.38 - earBob;
 
-    // Leg swing — each leg rotates around its X axis (forward/back).
+    // ── Leg swing ─────────────────────────────────────────────────────
     this.legs.forEach((leg) => {
       if (isMoving) {
         leg.pivot.rotation.x = Math.sin(this.walkPhase + leg.phaseOffset) * 0.7;
       } else {
-        // Settle to neutral when idle.
         leg.pivot.rotation.x *= 0.85;
       }
     });
+
+    // ── Hop ───────────────────────────────────────────────────────────
+    if (this._hopActive) {
+      this._hopT += dt;
+      const u = Math.min(1, this._hopT / this._hopDuration);
+      this.root.position.y = this._hopBaseY + Math.sin(Math.PI * u) * 1.9;
+      if (u >= 1) {
+        this.root.position.y = this._hopBaseY;
+        this._hopActive = false;
+      }
+    }
+
+    // ── Bark ──────────────────────────────────────────────────────────
+    if (this._barkActive) {
+      this._barkT += dt;
+      // Two nods: sin waves at period 0.16s
+      const nod = Math.max(0, Math.sin(this._barkT * Math.PI / 0.16));
+      this.head.position.z   = 0.78 + nod * 0.14;
+      this.snout.position.z  = 1.22 + nod * 0.14;
+      this.tongue.position.z = 1.30 + nod * 0.14;
+      if (this._barkT > 0.42) {
+        this.head.position.z   = 0.78;
+        this.snout.position.z  = 1.22;
+        this.tongue.position.z = 1.30;
+        this._barkActive = false;
+      }
+    }
   }
 
-  // Switch the dog's breed colour (used when the player swaps dogs).
+  // Switch breed — updates stored material diffuseColors directly.
   setBreed(breedId) {
     this.breedId = breedId;
-    const color = this._breedColor();
-    const meshes = [this.body, this.head, this.earL, this.earR];
-    this.legs.forEach((leg) => {
-      leg.pivot.getChildMeshes().forEach((m) => {
-        if (m.name.startsWith('leg_')) meshes.push(m);
-      });
-    });
-    this.tailPivot.getChildMeshes().forEach((m) => meshes.push(m));
-    meshes.forEach((m) => {
-      if (m.material && m.material.name === 'furMat') {
-        m.material.diffuseColor = color;
-      }
-    });
+    const fc = this._breedColor();
+    if (this._furMat)   this._furMat.diffuseColor   = fc;
+    if (this._bellyMat) this._bellyMat.diffuseColor = new Color3(
+      Math.min(1, fc.r * 1.25 + 0.15),
+      Math.min(1, fc.g * 1.25 + 0.15),
+      Math.min(1, fc.b * 1.10 + 0.15)
+    );
+    if (this._earMat)   this._earMat.diffuseColor   = new Color3(fc.r * 0.75, fc.g * 0.75, fc.b * 0.75);
   }
 
   get position() { return this.root.position; }
-  get rotation() { return this.root.rotation; }
-  dispose() { this.root.dispose(); }
+  get rotation()  { return this.root.rotation; }
+  dispose()       { this.root.dispose(); }
 }

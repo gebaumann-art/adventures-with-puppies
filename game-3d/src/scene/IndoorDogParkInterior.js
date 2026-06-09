@@ -40,6 +40,8 @@ export class IndoorDogParkInterior {
     // NPC dog state
     this._npcDogs = [];
     this._npcDogStates = [];
+    // Ball pit physics — separate from _meshes so we can look them up quickly
+    this._pitBalls = [];   // { mesh, vx, vz }
   }
 
   // Enter the interior. Hides the outdoor world, builds the room, moves the
@@ -55,8 +57,9 @@ export class IndoorDogParkInterior {
     this._buildRoom();
 
     // Place the dog just inside the south door, facing north.
+    // z=-10 keeps it away from the exit trigger (z<-14) AND the exit hint (z<-12).
     if (dog) {
-      dog.position.set(0, 0, -13);
+      dog.position.set(0, 0, -10);
       dog.rotation.y = 0;
     }
 
@@ -82,6 +85,7 @@ export class IndoorDogParkInterior {
     this._onExitCallback = null;
     this._npcDogs = [];
     this._npcDogStates = [];
+    this._pitBalls = [];
   }
 
   // Full cleanup — same as exit().
@@ -92,6 +96,7 @@ export class IndoorDogParkInterior {
   // Called every frame by WorldScene3D with delta time in seconds.
   update(dt) {
     this._animateNpcDogs(dt);
+    this._updateBalls(dt);
   }
 
   // ── Interactable zone queries ─────────────────────────────────────────
@@ -559,6 +564,10 @@ export class IndoorDogParkInterior {
       }, this.scene));
       ball.position = new Vector3(bx, by, bz);
       ball.material = this._mat(`park_pitBallMat_${i}`, ballColors[i % 5]);
+      // Track separately for physics
+      this._pitBalls.push({ mesh: ball, vx: 0, vz: 0,
+        minX: pitCX - pitHW + 0.28, maxX: pitCX + pitHW - 0.28,
+        minZ: pitCZ - pitHW + 0.28, maxZ: pitCZ + pitHW - 0.28 });
     }
   }
 
@@ -719,6 +728,59 @@ export class IndoorDogParkInterior {
         phase: Math.random() * Math.PI * 2,  // for bob sin wave
       });
     });
+  }
+
+  // ── Ball pit physics — push balls away from dog, simple velocity ─────
+  _updateBalls(dt) {
+    if (!this._dog || this._pitBalls.length === 0) return;
+    const dp = this._dog.position;
+    const PUSH_RADIUS  = 1.3;  // how close the dog must be to affect a ball
+    const PUSH_FORCE   = 9.0;  // impulse magnitude
+    const FRICTION     = 0.88; // velocity multiplier per frame
+    const MAX_SPEED    = 5.0;
+
+    for (const b of this._pitBalls) {
+      const m = b.mesh;
+      if (!m || m.isDisposed()) continue;
+
+      // Dog push — if dog is close, add an impulse away from dog
+      const dx = m.position.x - dp.x;
+      const dz = m.position.z - dp.z;
+      const dist2 = dx * dx + dz * dz;
+      if (dist2 < PUSH_RADIUS * PUSH_RADIUS && dist2 > 0.001) {
+        const dist = Math.sqrt(dist2);
+        b.vx += (dx / dist) * PUSH_FORCE * dt;
+        b.vz += (dz / dist) * PUSH_FORCE * dt;
+      }
+
+      // Clamp speed
+      const speed = Math.sqrt(b.vx * b.vx + b.vz * b.vz);
+      if (speed > MAX_SPEED) {
+        const s = MAX_SPEED / speed;
+        b.vx *= s; b.vz *= s;
+      }
+
+      // Move
+      let nx = m.position.x + b.vx * dt;
+      let nz = m.position.z + b.vz * dt;
+
+      // Bounce off pit walls
+      if (nx < b.minX) { nx = b.minX; b.vx = Math.abs(b.vx) * 0.6; }
+      if (nx > b.maxX) { nx = b.maxX; b.vx = -Math.abs(b.vx) * 0.6; }
+      if (nz < b.minZ) { nz = b.minZ; b.vz = Math.abs(b.vz) * 0.6; }
+      if (nz > b.maxZ) { nz = b.maxZ; b.vz = -Math.abs(b.vz) * 0.6; }
+
+      m.position.x = nx;
+      m.position.z = nz;
+
+      // Rolling spin (visual only)
+      m.rotation.x += b.vz * dt * 2;
+      m.rotation.z -= b.vx * dt * 2;
+
+      // Friction
+      b.vx *= FRICTION;
+      b.vz *= FRICTION;
+    }
   }
 
   // ── Animate NPC dogs each frame ───────────────────────────────────────
