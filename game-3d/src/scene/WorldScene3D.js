@@ -915,7 +915,9 @@ export class WorldScene3D {
     const ray = new Ray(camPos, dir, len - 1.5);
     for (const m of this._occluders) {
       if (!m.isEnabled()) continue;
-      const blocked = ray.intersectsBox(m.getBoundingInfo().boundingBox);
+      // intersectsMesh(fastCheck=true) recomputes the world matrix before
+      // testing, so it works even before the mesh's first render frame.
+      const blocked = ray.intersectsMesh(m, true).hit;
       const goal = blocked ? 0.30 : 1.0;
       const v = m.visibility + (goal - m.visibility) * 0.18;
       m.visibility = Math.abs(v - goal) < 0.02 ? goal : v;
@@ -1134,21 +1136,19 @@ export class WorldScene3D {
   _handleSpecialZone(zoneId) {
     switch (zoneId) {
       case 'academy':
+      case 'library':
+      case 'garden':
+        // Academy uses its own full-screen overlay — hide the generic modal-overlay
+        // that _openSpecialZone unconditionally opened, otherwise it stays visible
+        // as a blank white card after the academy panel closes.
+        document.getElementById('modal-overlay').classList.add('hidden');
         openAcademy(this.gameState, () => { this.modalOpen = false; });
         this.modalOpen = true;
-        break;
-      case 'library':
-        openAcademy(this.gameState, () => { this.modalOpen = false; });
-        this.modalOpen = true; // re-use Academy UI, defaulting to reading tab
         break;
       case 'digsite':
         document.getElementById('modal-overlay').classList.add('hidden');
         this.modalOpen = false;
         this._openTreasureDigGame();
-        break;
-      case 'garden':
-        openAcademy(this.gameState, () => { this.modalOpen = false; });
-        this.modalOpen = true; // science tab
         break;
       case 'vetclinic':
         // Handled by the early-return in _openSpecialZone → _enterVet().
