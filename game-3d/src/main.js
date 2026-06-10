@@ -1,5 +1,5 @@
 // Adventures With Puppies 3D — main entry point.
-// Boots the Babylon scene after the player signs in (or picks demo mode).
+// Boots the Babylon scene after the player picks (or creates) a profile.
 import { WorldScene3D } from './scene/WorldScene3D.js';
 import { createDog } from './systems/DogSystem.js';
 import { showHUD, updateDogHUD } from './ui/HUD.js';
@@ -8,6 +8,7 @@ import { ACCESSORIES } from './data/accessories.js';
 import { openShopModal } from './ui/ShopUI.js';
 import { openDogCardModal } from './ui/DogCard.js';
 import { openChat as openChatUI, closeChat as closeChatUI, openFriendsPanel } from './ui/ChatUI.js';
+import { showProfilePicker, saveProfileState } from './ui/ProfilePicker.js';
 
 // Expose accessory data so DogCard.js can render owned accessory icons.
 window._accessoriesData = { ACCESSORIES };
@@ -30,18 +31,23 @@ function defaultGameState(username) {
   };
 }
 
-function loadLocalGameState() {
-  try {
-    const raw = localStorage.getItem('awp3d_gamestate');
-    return raw ? JSON.parse(raw) : null;
-  } catch (_) { return null; }
-}
+// Exposed for ProfilePicker to create a fresh state without importing DogSystem.
+window._createDefaultGameState = (name) => defaultGameState(name);
 
 function saveGameState(gameState) {
   try {
-    localStorage.setItem('awp3d_gamestate', JSON.stringify(gameState));
+    if (gameState.profileId) {
+      saveProfileState(gameState.profileId, gameState);
+    } else {
+      localStorage.setItem('awp3d_gamestate', JSON.stringify(gameState));
+    }
   } catch (_) {}
 }
+
+// Show the profile picker on load.
+showProfilePicker((gameState, profileId) => {
+  startGame(gameState);
+});
 
 // ─── Boot the Babylon scene ───────────────────────────────────
 function startGame(gameState) {
@@ -180,37 +186,3 @@ function startGame(gameState) {
   window.addEventListener('keydown', window._zoomKeyHandler);
 }
 
-// ─── Auth handlers (no Firebase in v1 — local-only) ────────────
-window.handleLogin = function () {
-  const email = document.getElementById('login-email').value.trim();
-  const password = document.getElementById('login-password').value;
-  const errEl = document.getElementById('auth-error');
-  if (!email || !password) { errEl.textContent = 'Please fill in both fields.'; return; }
-
-  const gs = loadLocalGameState() || defaultGameState(email.split('@')[0]);
-  gs.email = email;
-  saveGameState(gs);
-  startGame(gs);
-};
-
-window.handleRegister = function () {
-  const username = document.getElementById('reg-username').value.trim();
-  const email = document.getElementById('reg-email').value.trim();
-  const password = document.getElementById('reg-password').value;
-  const errEl = document.getElementById('auth-error');
-
-  if (!username) { errEl.textContent = 'Please enter a display name.'; return; }
-  if (!email) { errEl.textContent = 'Please enter your email.'; return; }
-  if (password.length < 6) { errEl.textContent = 'Password must be at least 6 characters.'; return; }
-
-  const gs = defaultGameState(username);
-  gs.email = email;
-  saveGameState(gs);
-  startGame(gs);
-};
-
-window.handleDemoMode = function () {
-  const gs = loadLocalGameState() || defaultGameState('Explorer');
-  gs.isDemo = true;
-  startGame(gs);
-};

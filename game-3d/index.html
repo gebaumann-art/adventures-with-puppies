@@ -27,7 +27,7 @@
         outline: none;
         touch-action: none;
       }
-      /* Auth overlay */
+      /* Auth / profile-picker overlay */
       #auth-overlay {
         position: absolute;
         inset: 0;
@@ -38,55 +38,11 @@
         z-index: 100;
       }
       #auth-overlay.hidden { display: none; }
-      .auth-card {
-        background: white;
-        border-radius: 24px;
-        padding: 40px;
-        width: 360px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-        text-align: center;
-      }
-      .auth-card h1 {
-        font-size: 26px;
-        font-weight: 800;
-        color: #1565c0;
-        margin-bottom: 4px;
-      }
-      .auth-card .subtitle {
-        font-size: 14px;
-        color: #64b5f6;
-        margin-bottom: 24px;
-      }
-      .paw-logo {
-        font-size: 60px;
-        margin-bottom: 10px;
-        display: block;
-        animation: bounce 1.5s infinite;
-      }
       @keyframes bounce {
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-8px); }
       }
-      .auth-tabs {
-        display: flex;
-        border-radius: 12px;
-        overflow: hidden;
-        margin-bottom: 18px;
-        border: 2px solid #e3f2fd;
-      }
-      .auth-tab {
-        flex: 1;
-        padding: 10px;
-        border: none;
-        background: #e3f2fd;
-        cursor: pointer;
-        font-family: 'Nunito', sans-serif;
-        font-weight: 700;
-        font-size: 14px;
-        color: #64b5f6;
-        transition: all 0.2s;
-      }
-      .auth-tab.active { background: #1565c0; color: white; }
+      /* Shared input / button styles (used by profile picker create screen) */
       .auth-input {
         width: 100%;
         padding: 11px 14px;
@@ -94,9 +50,9 @@
         border-radius: 12px;
         font-family: 'Nunito', sans-serif;
         font-size: 14px;
-        margin-bottom: 10px;
         outline: none;
         transition: border-color 0.2s;
+        display: block;
       }
       .auth-input:focus { border-color: #42a5f5; }
       .auth-btn {
@@ -111,13 +67,11 @@
         font-weight: 800;
         cursor: pointer;
         transition: transform 0.1s, opacity 0.2s;
-        margin-top: 4px;
+        display: block;
       }
       .auth-btn:hover { opacity: 0.9; transform: scale(1.01); }
       .auth-btn:active { transform: scale(0.99); }
-      .auth-error { color: #e53935; font-size: 13px; margin-top: 8px; min-height: 18px; }
       .demo-btn {
-        margin-top: 12px;
         background: none;
         border: 2px solid #e3f2fd;
         color: #90caf9;
@@ -130,6 +84,90 @@
         display: block;
         width: 100%;
       }
+      /* Profile picker */
+      .pp-card {
+        background: white;
+        border-radius: 24px;
+        padding: 28px 24px 22px;
+        width: 440px;
+        max-width: 96vw;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        text-align: center;
+        animation: ppFadeIn 0.2s ease-out;
+      }
+      @keyframes ppFadeIn {
+        from { opacity: 0; transform: scale(0.94); }
+        to   { opacity: 1; transform: scale(1); }
+      }
+      .pp-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .pp-slot {
+        position: relative;
+        border: 2.5px solid #e3f2fd;
+        border-radius: 16px;
+        padding: 14px 10px 12px;
+        background: #f5f9ff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        transition: all 0.15s;
+        min-height: 140px;
+      }
+      .pp-slot-new {
+        border-style: dashed;
+        justify-content: center;
+        cursor: pointer;
+      }
+      .pp-slot-new:hover {
+        border-color: #42a5f5;
+        background: #e8f4ff;
+        transform: translateY(-2px);
+      }
+      .pp-del-btn {
+        position: absolute;
+        top: 6px; right: 6px;
+        width: 20px; height: 20px;
+        background: #ffebee;
+        border: none; border-radius: 50%;
+        font-size: 10px; font-weight: 800;
+        color: #e53935; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        opacity: 0.55; transition: opacity 0.15s;
+        line-height: 1;
+      }
+      .pp-del-btn:hover { opacity: 1; }
+      .pp-play-btn {
+        width: 100%;
+        padding: 7px;
+        background: linear-gradient(135deg, #1565c0, #42a5f5);
+        color: white; border: none; border-radius: 10px;
+        font-family: 'Nunito', sans-serif;
+        font-size: 13px; font-weight: 800;
+        cursor: pointer; margin-top: 4px;
+        transition: opacity 0.15s;
+      }
+      .pp-play-btn:hover { opacity: 0.9; }
+      .pp-emoji-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .pp-emoji-btn {
+        font-size: 28px;
+        background: #f5f9ff;
+        border: 2.5px solid #e3f2fd;
+        border-radius: 12px;
+        padding: 8px; cursor: pointer;
+        transition: all 0.15s; line-height: 1;
+      }
+      .pp-emoji-btn:hover { border-color: #42a5f5; background: #e3f2fd; }
+      .pp-emoji-sel { border-color: #1565c0 !important; background: #dbeeff !important; transform: scale(1.1); }
+      .paw-logo { animation: bounce 1.5s infinite; }
       /* HUD */
       #hud {
         position: absolute;
@@ -511,31 +549,8 @@
     <div id="game-container">
       <canvas id="render-canvas"></canvas>
 
-      <!-- Auth screen -->
-      <div id="auth-overlay">
-        <div class="auth-card">
-          <span class="paw-logo">🐾</span>
-          <h1>Adventures With Puppies 3D</h1>
-          <div class="subtitle">Explore in 3D, learn, and raise your puppy!</div>
-          <div class="auth-tabs">
-            <button class="auth-tab active" onclick="showTab('login')">Log In</button>
-            <button class="auth-tab" onclick="showTab('register')">Sign Up</button>
-          </div>
-          <div id="login-form">
-            <input class="auth-input" id="login-email" type="email" placeholder="Email" autocomplete="email" />
-            <input class="auth-input" id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
-            <button class="auth-btn" id="login-btn" onclick="handleLogin()">Let's Play!</button>
-          </div>
-          <div id="register-form" style="display:none">
-            <input class="auth-input" id="reg-username" type="text" placeholder="Display name (e.g. PuppyLover123)" maxlength="20" />
-            <input class="auth-input" id="reg-email" type="email" placeholder="Your email" autocomplete="email" />
-            <input class="auth-input" id="reg-password" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" />
-            <button class="auth-btn" id="register-btn" onclick="handleRegister()">Create Account!</button>
-          </div>
-          <div class="auth-error" id="auth-error"></div>
-          <button class="demo-btn" onclick="handleDemoMode()">Play Demo (no account needed)</button>
-        </div>
-      </div>
+      <!-- Profile picker (rendered by ProfilePicker.js on load) -->
+      <div id="auth-overlay"></div>
 
       <!-- HUD -->
       <div id="hud" class="hidden">
@@ -616,15 +631,5 @@
     </div>
 
     <script type="module" src="/src/main.js"></script>
-    <script>
-      function showTab(tab) {
-        document.querySelectorAll('.auth-tab').forEach((t, i) => {
-          t.classList.toggle('active', (tab === 'login') ? i === 0 : i === 1);
-        });
-        document.getElementById('login-form').style.display = tab === 'login' ? 'block' : 'none';
-        document.getElementById('register-form').style.display = tab === 'register' ? 'block' : 'none';
-        document.getElementById('auth-error').textContent = '';
-      }
-    </script>
   </body>
 </html>
