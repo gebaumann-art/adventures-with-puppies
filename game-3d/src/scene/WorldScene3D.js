@@ -150,6 +150,12 @@ export class WorldScene3D {
     this._agilityActive = false;
     this._agilityCheckpoints = null;
     this._agilityUI = null;
+    // Interactive agility state
+    this._agilityHurdles = null;
+    this._agilityPenalty = 0;
+    this._agilitySavedCam = null;
+    // Smooth camera zoom animation target ({radius, beta} lerped each frame)
+    this._camAnim = null;
     // Pet care (Tamagotchi-lite needs system)
     this.petCare = null;
     this.petCareHUD = null;
@@ -471,6 +477,19 @@ export class WorldScene3D {
     // Always animate the dog (so idle breathing happens during modals too).
     this.dog.update(dt, moving);
 
+    // ── Smooth camera zoom (dog park puppy-cam, agility run cam) ──
+    // Lerps toward the target then releases control back to the player.
+    if (this._camAnim) {
+      const a = this._camAnim;
+      const k = Math.min(1, dt * 3);
+      this.camera.radius += (a.radius - this.camera.radius) * k;
+      this.camera.beta   += (a.beta   - this.camera.beta)   * k;
+      if (Math.abs(a.radius - this.camera.radius) < 0.3 &&
+          Math.abs(a.beta   - this.camera.beta)   < 0.02) {
+        this._camAnim = null;
+      }
+    }
+
     // ── Space bar hop (edge-triggered) ────────────────────────────
     if (!this.modalOpen) {
       const hopPressed = this.keys.space && !this._lastSpace;
@@ -538,6 +557,27 @@ export class WorldScene3D {
 
     // Agility checkpoint detection when course is active.
     if (this._agilityActive && this._agilityCheckpoints && this._agilityUI) {
+      // ── Hurdle jumping — hop with SPACE to clear; walking through knocks
+      //    the bar off and adds a time penalty.
+      if (this._agilityHurdles) {
+        for (const h of this._agilityHurdles) {
+          if (h.done) continue;
+          const dx = h.x - this.dog.position.x;
+          const dz = h.z - this.dog.position.z;
+          if (dx * dx + dz * dz < 1.4 * 1.4) {
+            h.done = true;
+            if (this.dog._hopActive) {
+              if (this.particles) this.particles.achievementPop(this.dog.position);
+              showZoneLabel('✨ Great jump!');
+            } else {
+              this._agilityPenalty += 5;
+              if (this.agilityCourse.knockBar) this.agilityCourse.knockBar(h.index);
+              showZoneLabel('💥 Bar down! Hop with SPACE next time! (+5s)');
+            }
+          }
+        }
+      }
+
       let reached = 0;
       this._agilityCheckpoints.forEach((cp, idx) => {
         if (!cp.reached) {
@@ -552,7 +592,9 @@ export class WorldScene3D {
       this._agilityUI.markCheckpoint(reached, this._agilityCheckpoints.length);
       if (reached === this._agilityCheckpoints.length) {
         const timeSeconds = this._agilityUI.stopTimer();
-        const stars = timeSeconds < 45 ? 3 : timeSeconds < 60 ? 2 : 1;
+        // Knocked bars add +5s each to the effective time for star scoring.
+        const effective = timeSeconds + this._agilityPenalty;
+        const stars = effective < 45 ? 3 : effective < 60 ? 2 : 1;
         this._agilityUI.showResults(timeSeconds, stars);
         this._agilityActive = false;
       }
@@ -768,8 +810,19 @@ export class WorldScene3D {
     const zone = this.worldBuilder.getZoneAt(this.dog.position.x, this.dog.position.z);
     const id = zone ? zone.id : null;
     if (id !== this.lastZoneId) {
+      const prev = this.lastZoneId;
       this.lastZoneId = id;
       if (zone) showZoneLabel(zone.label);
+
+      // Cinematic puppy-cam: entering the dog park swoops the camera down
+      // near the dog's eye level; leaving restores the overview framing.
+      if (!this._agilityActive) {
+        if (id === 'dogpark') {
+          this._camAnim = { radius: 19, beta: 1.20 };
+        } else if (prev === 'dogpark') {
+          this._camAnim = { radius: 42, beta: Math.PI / 3.8 };
+        }
+      }
     }
   }
 
@@ -1006,6 +1059,18 @@ export class WorldScene3D {
 
   _startAgilityRun() {
     this.agilityCourse.show();
+    // Reset knocked bars from any previous run; collect hurdle positions for
+    // the SPACE-hop jump mechanic.
+    if (this.agilityCourse.resetBars) this.agilityCourse.resetBars();
+    this._agilityHurdles = (this.agilityCourse.getHurdles
+      ? this.agilityCourse.getHurdles() : []).map(h => ({ ...h, done: false }));
+    this._agilityPenalty = 0;
+
+    // Swoop the camera down to puppy height for the run.
+    this._agilitySavedCam = { radius: this.camera.radius, beta: this.camera.beta };
+    this._camAnim = { radius: 14, beta: 1.22 };
+    showZoneLabel('🐾 Hop over the jumps with SPACE!');
+
     const ui = new AgilityUI();
     const checkpoints = this.agilityCourse.getCheckpoints();
     ui.show(checkpoints.length);
@@ -1018,12 +1083,20 @@ export class WorldScene3D {
       ui.hide();                  // dismiss the top bar AND result overlay
       this._agilityUI = null;
       this.agilityCourse.hide();
+      this._restoreAgilityCam();
       const coinReward = stars * 15;
       addBones(this.gameState, stars * 2);
       addCoins(this.gameState, coinReward);
       if (this.petCare) this.petCare.onTrained();   // agility counts as training
       checkAchievements(this.gameState, { event: 'agility_complete', value: stars });
     });
+  }
+
+  _restoreAgilityCam() {
+    if (this._agilitySavedCam) {
+      this._camAnim = { ...this._agilitySavedCam };
+      this._agilitySavedCam = null;
+    }
   }
 
   // Play the cast animation, then open the fishing modal.
@@ -1484,6 +1557,7 @@ export class WorldScene3D {
         this._agilityUI = null;
       }
       if (this.agilityCourse) this.agilityCourse.hide();
+      this._restoreAgilityCam();
       return;
     }
 

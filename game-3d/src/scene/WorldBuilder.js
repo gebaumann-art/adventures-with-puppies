@@ -19,13 +19,13 @@ export const WORLD_SIZE = 300;
 // Zone definitions in 3D world coords (center + size).
 // Each zone has a label that's used by WorldScene3D when the player walks in.
 export const ZONES_3D = [
-  { id: 'ocean',         label: '🌊 Ocean',           x: 0,    z: 130,  w: 300, d: 60,  color: [0.31, 0.76, 0.97] },
+  { id: 'ocean',         label: '🌊 Ocean',           x: 0,    z: 130,  w: 300, d: 60,  color: [0.22, 0.72, 1.0] },
   { id: 'dock',          label: '🚤 The Dock',        x: -10,  z: 95,   w: 40,  d: 40,  color: [0.61, 0.43, 0.21] },
-  { id: 'neighborhood',  label: '🏘️ My Neighborhood', x: 30,   z: 40,   w: 180, d: 90,  color: [0.65, 0.84, 0.65] },
+  { id: 'neighborhood',  label: '🏘️ My Neighborhood', x: 30,   z: 40,   w: 180, d: 90,  color: [0.50, 0.88, 0.42] },
   { id: 'myhouse',       label: '🏠 My House',        x: 0,    z: 35,   w: 22,  d: 22,  color: [1.0, 0.98, 0.77] },
-  { id: 'dogpark',       label: '🌳 Dog Park',        x: -70,  z: 20,   w: 50,  d: 50,  color: [0.40, 0.74, 0.40] },
-  { id: 'indoordogpark', label: '🐾 Indoor Dog Park', x: 80,   z: -10,  w: 36,  d: 30,  color: [0.81, 0.58, 0.85] },
-  { id: 'downtown',      label: '🏢 Downtown',        x: 0,    z: -60,  w: 160, d: 50,  color: [0.69, 0.74, 0.77] },
+  { id: 'dogpark',       label: '🌳 Dog Park',        x: -70,  z: 20,   w: 50,  d: 50,  color: [0.45, 0.85, 0.40] },
+  { id: 'indoordogpark', label: '🐾 Indoor Dog Park', x: 80,   z: -10,  w: 36,  d: 30,  color: [0.85, 0.62, 0.92] },
+  { id: 'downtown',      label: '🏢 Downtown',        x: 0,    z: -60,  w: 160, d: 50,  color: [0.96, 0.91, 0.80] },
   { id: 'friendsplace',  label: '🏡 Friend\'s Place', x: 30,   z: -115, w: 50,  d: 36,  color: [1.0, 0.80, 0.50] },
   { id: 'academy',    label: '🏫 Puppy Academy',    x: -40, z: -40,  w: 40, d: 40,  color: [0.98, 0.95, 0.70] },
   { id: 'library',    label: '📚 The Library',      x: 40,  z: -90,  w: 30, d: 30,  color: [0.80, 0.90, 0.98] },
@@ -41,11 +41,11 @@ export const ZONES_3D = [
 // colors. wallColor is the body, trimColor is gingerbread/contrast trim,
 // roofColor is the pitched roof. Some get a corner turret.
 const NEIGHBOR_HOUSES = [
-  { x: -50, z: 50, wallColor: [1.0, 0.92, 0.55],  trimColor: [1.0, 1.0, 1.0],   roofColor: [0.55, 0.30, 0.25], turret: true  }, // pastel yellow
-  { x: -25, z: 55, wallColor: [0.70, 0.92, 0.78], trimColor: [1.0, 1.0, 1.0],   roofColor: [0.40, 0.45, 0.50], turret: false }, // mint green
-  { x: 25,  z: 55, wallColor: [0.70, 0.85, 0.98], trimColor: [1.0, 1.0, 1.0],   roofColor: [0.40, 0.40, 0.55], turret: true  }, // sky blue
-  { x: 50,  z: 50, wallColor: [0.98, 0.78, 0.85], trimColor: [1.0, 1.0, 1.0],   roofColor: [0.55, 0.30, 0.40], turret: false }, // rose pink
-  { x: 75,  z: 45, wallColor: [0.85, 0.78, 0.95], trimColor: [1.0, 1.0, 1.0],   roofColor: [0.45, 0.35, 0.55], turret: true  }, // lavender
+  { x: -50, z: 50, wallColor: [1.0, 0.88, 0.40],  trimColor: [1.0, 1.0, 1.0],   roofColor: [0.85, 0.38, 0.25], doorColor: [0.10, 0.65, 0.65], turret: true  }, // butter yellow / terracotta
+  { x: -25, z: 55, wallColor: [0.55, 0.95, 0.70], trimColor: [1.0, 1.0, 1.0],   roofColor: [0.22, 0.32, 0.62], doorColor: [0.90, 0.20, 0.20], turret: false }, // mint green / deep blue
+  { x: 25,  z: 55, wallColor: [0.50, 0.80, 1.0],  trimColor: [1.0, 1.0, 1.0],   roofColor: [0.85, 0.32, 0.22], doorColor: [1.0, 0.80, 0.15],  turret: true  }, // sky blue / terracotta
+  { x: 50,  z: 50, wallColor: [1.0, 0.62, 0.50],  trimColor: [1.0, 1.0, 1.0],   roofColor: [0.25, 0.35, 0.68], doorColor: [0.10, 0.65, 0.65], turret: false }, // coral peach / deep blue
+  { x: 75,  z: 45, wallColor: [0.80, 0.68, 0.98], trimColor: [1.0, 1.0, 1.0],   roofColor: [0.88, 0.40, 0.28], doorColor: [0.90, 0.20, 0.20], turret: true  }, // lavender / terracotta
 ];
 
 const DOWNTOWN_SHOPS = [
@@ -87,6 +87,15 @@ export class WorldBuilder {
     this._buildGarden();
     this._buildDigSite();
     this._buildBeach();
+    this._buildCartoonDecor();
+  }
+
+  // Helper for decoration materials — bright cartoon colors, low specular.
+  _dmat(name, r, g, b) {
+    const m = new StandardMaterial(name, this.scene);
+    m.diffuseColor = new Color3(r, g, b);
+    m.specularColor = new Color3(0.02, 0.02, 0.02);
+    return m;
   }
 
   // Helper to make a solid-colored material quickly.
@@ -101,7 +110,7 @@ export class WorldBuilder {
     const ground = MeshBuilder.CreateGround('ground', {
       width: WORLD_SIZE, height: WORLD_SIZE, subdivisions: 4,
     }, this.scene);
-    ground.material = this._mat('groundMat', [0.55, 0.78, 0.50]);
+    ground.material = this._mat('groundMat', [0.45, 0.85, 0.35]);
     ground.position.y = 0;
     ground.checkCollisions = false;
   }
@@ -133,7 +142,7 @@ export class WorldBuilder {
     }, this.scene);
     water.position = new Vector3(0, 0.25, 130);
     const m = new StandardMaterial('waterMat', this.scene);
-    m.diffuseColor = new Color3(0.27, 0.65, 0.95);
+    m.diffuseColor = new Color3(0.18, 0.62, 1.0);
     m.alpha = 0.85;
     m.specularColor = new Color3(0.4, 0.6, 0.9);
     water.material = m;
@@ -213,6 +222,7 @@ export class WorldBuilder {
       idPrefix: 'myhouse',
       turret: true,
       isMyHouse: true,
+      doorColor: [0.10, 0.65, 0.65],   // cheerful teal door
     });
 
     // A cute welcome mat in front of the door (lined up with the steps)
@@ -233,6 +243,7 @@ export class WorldBuilder {
         idPrefix: `neighbor_${i}`,
         turret: cfg.turret,
         isMyHouse: false,
+        doorColor: cfg.doorColor,
       });
     });
   }
@@ -242,7 +253,7 @@ export class WorldBuilder {
   // with pillars and railing, bay window, gingerbread trim, front door
   // with knob and steps, multiple windows on each visible face.
   // The house is centered at pos.x / pos.z. Front faces +Z (south).
-  _makeVictorianHouse({ pos, wallColor, trimColor, roofColor, idPrefix, turret, isMyHouse }) {
+  _makeVictorianHouse({ pos, wallColor, trimColor, roofColor, idPrefix, turret, isMyHouse, doorColor = [0.90, 0.20, 0.20] }) {
     const baseW = 10;
     const baseD = 8;
     const story1H = isMyHouse ? 6.5 : 6;
@@ -407,7 +418,7 @@ export class WorldBuilder {
       width: doorW, height: doorH, depth: 0.2,
     }, this.scene);
     door.position = new Vector3(pos.x, doorY, doorZ);
-    door.material = this._mat(`${idPrefix}_doorMat`, [0.55, 0.32, 0.15]);
+    door.material = this._mat(`${idPrefix}_doorMat`, doorColor);
 
     // Door trim
     const doorTrim = MeshBuilder.CreateBox(`${idPrefix}_doorTrim`, {
@@ -455,6 +466,33 @@ export class WorldBuilder {
     this._addWindow(`${idPrefix}_winWest1`, left - 0.01, 2.2, pos.z + 1.5, -Math.PI / 2, 0.9, 1.4);
     this._addWindow(`${idPrefix}_winWest2`, left - 0.01, 2.2, pos.z - 1.5, -Math.PI / 2, 0.9, 1.4);
     this._addWindow(`${idPrefix}_winWestS2`, pos.x - story2W / 2 - 0.01, story1H + story2H * 0.5 + 0.3, pos.z, -Math.PI / 2, 0.9, 1.1);
+
+    // ── Flower boxes under the front windows (cartoon decor) ────────
+    this._addWindowFlowerBox(`${idPrefix}_fboxFrontR`, pos.x + 3.0, 1.35, front + 0.18);
+    this._addWindowFlowerBox(`${idPrefix}_fboxS2L`, pos.x - 1.8, story1H + story2H * 0.5 - 0.45, pos.z + story2D / 2 + 0.18);
+    this._addWindowFlowerBox(`${idPrefix}_fboxS2R`, pos.x + 1.8, story1H + story2H * 0.5 - 0.45, pos.z + story2D / 2 + 0.18);
+  }
+
+  // A small white window box with 3 tiny colorful flower spheres on top.
+  _addWindowFlowerBox(id, x, y, z) {
+    const box = MeshBuilder.CreateBox(`${id}_box`, {
+      width: 1.2, depth: 0.32, height: 0.26,
+    }, this.scene);
+    box.position = new Vector3(x, y, z);
+    box.material = this._dmat(`${id}_boxMat`, 1, 1, 1);
+    box.isPickable = false;
+
+    const petalColors = [
+      [0.95, 0.25, 0.30], [1.0, 0.85, 0.20], [1.0, 0.55, 0.75],
+    ];
+    for (let f = 0; f < 3; f++) {
+      const bloom = MeshBuilder.CreateSphere(`${id}_bloom_${f}`, {
+        diameter: 0.24, segments: 6,
+      }, this.scene);
+      bloom.position = new Vector3(x - 0.35 + f * 0.35, y + 0.22, z);
+      bloom.material = this._dmat(`${id}_bloomMat_${f}`, ...petalColors[f]);
+      bloom.isPickable = false;
+    }
   }
 
   // Add a window: light-blue plane + white frame box behind it.
@@ -508,7 +546,7 @@ export class WorldBuilder {
     }, this.scene);
     field.rotation.x = Math.PI / 2;
     field.position = new Vector3(-70, 0.3, 20);
-    field.material = this._mat('dogParkMat', [0.32, 0.78, 0.40]);
+    field.material = this._mat('dogParkMat', [0.42, 0.88, 0.42]);
 
     // Wooden fence — short cylinders placed around the perimeter
     const wood = this._mat('fenceMat', [0.55, 0.39, 0.21]);
@@ -633,6 +671,7 @@ export class WorldBuilder {
       idPrefix: 'friend',
       turret: false,
       isMyHouse: false,
+      doorColor: [1.0, 0.80, 0.15],   // sunny yellow door
     });
     // Welcome sign — note: Friend's Place front faces +Z (-115 + 4 = -111)
     const sign = MeshBuilder.CreateBox('friendSign', { width: 2, depth: 0.2, height: 1.2 }, this.scene);
@@ -654,11 +693,17 @@ export class WorldBuilder {
       const foliageRoot = new TransformNode(`foliageRoot_${i}`, this.scene);
       foliageRoot.position = new Vector3(x, 3.2, z);
 
-      // Three overlapping spheres give an irregular, leafy silhouette
-      const layerDefs = [
-        { name: `leavesBot_${i}`, dy: 0.6,  d: 4.4, color: [0.20, 0.56, 0.23] },
-        { name: `leavesMid_${i}`, dy: 1.9,  d: 3.4, color: [0.26, 0.65, 0.28] },
-        { name: `leavesTop_${i}`, dy: 3.0,  d: 2.3, color: [0.34, 0.74, 0.32] },
+      // Three overlapping spheres give a lollipop-style cartoon silhouette.
+      // Every 5th tree is a pink blossom tree for Puppy Dog Pals charm.
+      const isBlossom = i % 5 === 4;
+      const layerDefs = isBlossom ? [
+        { name: `leavesBot_${i}`, dy: 0.6,  d: 4.4, color: [0.96, 0.58, 0.76] },
+        { name: `leavesMid_${i}`, dy: 1.9,  d: 3.4, color: [1.0, 0.70, 0.84] },
+        { name: `leavesTop_${i}`, dy: 3.0,  d: 2.3, color: [1.0, 0.80, 0.90] },
+      ] : [
+        { name: `leavesBot_${i}`, dy: 0.6,  d: 4.4, color: [0.30, 0.78, 0.30] },
+        { name: `leavesMid_${i}`, dy: 1.9,  d: 3.4, color: [0.40, 0.88, 0.35] },
+        { name: `leavesTop_${i}`, dy: 3.0,  d: 2.3, color: [0.48, 0.94, 0.42] },
       ];
       layerDefs.forEach(({ name, dy, d, color }) => {
         const s = MeshBuilder.CreateSphere(name, { diameter: d, segments: 7 }, this.scene);
@@ -1562,6 +1607,270 @@ export class WorldBuilder {
     const beachSignMat = new StandardMaterial('beach_signMat', this.scene);
     beachSignMat.diffuseTexture = beachSignTex;
     beachSign.material = beachSignMat;
+  }
+
+  // ── Puppy Dog Pals cartoon decor — sun, clouds, flowers, bushes, ──────
+  // picket fences, striped shop awnings, and dog park props. Everything
+  // here is purely decorative: isPickable = false, no collisions, and no
+  // mesh overlaps with gameplay objects.
+  _buildCartoonDecor() {
+    this._decorSunAndClouds();
+    this._decorFlowers();
+    this._decorBushes();
+    this._decorPicketFences();
+    this._decorShopAwnings();
+    this._decorDogParkProps();
+  }
+
+  // Big warm sun + puffy cartoon clouds floating in the sky.
+  _decorSunAndClouds() {
+    const sun = MeshBuilder.CreateSphere('decor_sun', { diameter: 16, segments: 16 }, this.scene);
+    sun.position = new Vector3(100, 80, 120);
+    const sunMat = this._dmat('decor_sunMat', 1.0, 0.88, 0.25);
+    sunMat.emissiveColor = new Color3(1.0, 0.85, 0.30);
+    sun.material = sunMat;
+    sun.isPickable = false;
+
+    const cloudMat = this._dmat('decor_cloudMat', 1, 1, 1);
+    cloudMat.alpha = 0.95;
+    cloudMat.emissiveColor = new Color3(0.45, 0.45, 0.48);
+    // 8 clouds: [x, y, z] cluster anchors scattered across the sky.
+    const cloudSpots = [
+      [-90, 42, 80], [-30, 47, 115], [40, 38, 90], [115, 44, 30],
+      [-115, 40, -30], [10, 50, -80], [80, 36, -120], [-55, 45, -125],
+    ];
+    cloudSpots.forEach(([cx, cy, cz], i) => {
+      const puffs = 3 + (i % 2); // 3-4 puffs per cloud
+      for (let p = 0; p < puffs; p++) {
+        const d = 7.5 - Math.abs(p - (puffs - 1) / 2) * 2.0;
+        const puff = MeshBuilder.CreateSphere(`decor_cloud_${i}_${p}`, {
+          diameter: d, segments: 8,
+        }, this.scene);
+        puff.position = new Vector3(
+          cx + p * 3.6 - (puffs - 1) * 1.8,
+          cy + (p % 2) * 1.3,
+          cz,
+        );
+        puff.material = cloudMat;
+        puff.isPickable = false;
+      }
+    });
+  }
+
+  // Colorful flower clumps near houses, the park and along paths.
+  _decorFlowers() {
+    const stemMat = this._dmat('decor_flowerStemMat', 0.30, 0.70, 0.25);
+    const bloomMats = [
+      this._dmat('decor_bloomRed', 0.95, 0.22, 0.28),
+      this._dmat('decor_bloomYellow', 1.0, 0.85, 0.18),
+      this._dmat('decor_bloomPink', 1.0, 0.55, 0.75),
+      this._dmat('decor_bloomPurple', 0.70, 0.40, 0.95),
+      this._dmat('decor_bloomWhite', 1.0, 1.0, 1.0),
+    ];
+    // Clump anchors: front yards, park edges, downtown planters, paths.
+    const clumps = [
+      [-6, 46], [6, 46], [-7, 40], [7, 40],                 // my house yard
+      [-56, 57], [-44, 57], [-31, 62], [-19, 62],           // neighbor yards
+      [19, 62], [31, 62], [44, 57], [56, 57], [69, 52], [81, 52],
+      [-50, 32], [-50, 8], [-88, 40], [-92, 0],             // dog park edges
+      [-45, -48], [45, -48], [0, -42], [-15, -45], [15, -45], // downtown
+      [22, -106], [38, -106],                               // friend's place
+      [88, 12], [25, 80], [-25, 48], [10, 62], [60, 30],    // paths & garden
+    ];
+    clumps.forEach(([fx, fz], ci) => {
+      for (let f = 0; f < 3; f++) {
+        const ang = ci * 2.4 + f * 2.1;
+        const px = fx + Math.cos(ang) * (0.35 + f * 0.35);
+        const pz = fz + Math.sin(ang) * (0.35 + f * 0.35);
+        const stem = MeshBuilder.CreateCylinder(`decor_flowerStem_${ci}_${f}`, {
+          height: 0.5, diameter: 0.07, tessellation: 6,
+        }, this.scene);
+        stem.position = new Vector3(px, 0.5, pz);
+        stem.material = stemMat;
+        stem.isPickable = false;
+
+        const bloom = MeshBuilder.CreateSphere(`decor_flowerBloom_${ci}_${f}`, {
+          diameter: 0.32, segments: 6,
+        }, this.scene);
+        bloom.position = new Vector3(px, 0.82, pz);
+        bloom.material = bloomMats[(ci + f) % bloomMats.length];
+        bloom.isPickable = false;
+      }
+    });
+  }
+
+  // Round bush clusters along house fronts and walkways.
+  _decorBushes() {
+    const bushMatA = this._dmat('decor_bushMatA', 0.30, 0.78, 0.30);
+    const bushMatB = this._dmat('decor_bushMatB', 0.40, 0.88, 0.35);
+    // Bush cluster anchors — beside house porches and along paths,
+    // kept clear of doors, steps and walk lines.
+    const spots = [
+      [-8, 39.5], [8, 39.5],                  // my house corners
+      [-56, 54.5], [-44, 54.5],               // neighbor 0
+      [-31, 59.5], [-19, 59.5],               // neighbor 1
+      [19, 59.5], [31, 59.5],                 // neighbor 2
+      [44, 54.5], [56, 54.5],                 // neighbor 3
+      [69, 49.5], [81, 49.5],                 // neighbor 4
+      [24, -110.5], [36, -110.5],             // friend's place
+      [-68, -49], [-52, -49], [-38, -49], [-22, -49], // shop fronts
+      [22, -49], [38, -49], [52, -49], [68, -49],
+      [66, -1], [94, -1],                     // indoor dog park entrance
+    ];
+    spots.forEach(([bx, bz], i) => {
+      const count = 2 + (i % 2); // 2-3 spheres per bush
+      for (let s = 0; s < count; s++) {
+        const d = 1.3 - s * 0.25;
+        const bush = MeshBuilder.CreateSphere(`decor_bush_${i}_${s}`, {
+          diameter: d, segments: 7,
+        }, this.scene);
+        bush.position = new Vector3(
+          bx + (s - (count - 1) / 2) * 0.7,
+          0.45 + (s % 2) * 0.15,
+          bz + ((s % 2) - 0.5) * 0.3,
+        );
+        bush.material = s % 2 ? bushMatB : bushMatA;
+        bush.isPickable = false;
+      }
+    });
+  }
+
+  // White picket fences along the front yards of 4 neighbor houses.
+  // Each fence sits 8 units in front of the house wall (well clear of the
+  // porch and steps) with a center gap so the dog can walk to the door.
+  _decorPicketFences() {
+    const picketMat = this._dmat('decor_picketMat', 1, 1, 1);
+    const fenceHouses = [NEIGHBOR_HOUSES[0], NEIGHBOR_HOUSES[1], NEIGHBOR_HOUSES[3], NEIGHBOR_HOUSES[4]];
+    fenceHouses.forEach((h, hi) => {
+      const fz = h.z + 4 + 8; // front wall plane (+4) plus 8 units of yard
+      // Two segments left/right of a 3.2-unit center gap for the path.
+      [[-6, -1.6], [1.6, 6]].forEach(([x0, x1], seg) => {
+        let pi = 0;
+        for (let px = x0; px <= x1 + 0.001; px += 0.5) {
+          const picket = MeshBuilder.CreateBox(`decor_picket_${hi}_${seg}_${pi}`, {
+            width: 0.15, depth: 0.1, height: 0.9,
+          }, this.scene);
+          picket.position = new Vector3(h.x + px, 0.65, fz);
+          picket.material = picketMat;
+          picket.isPickable = false;
+          pi++;
+        }
+        const rail = MeshBuilder.CreateBox(`decor_picketRail_${hi}_${seg}`, {
+          width: (x1 - x0) + 0.15, depth: 0.06, height: 0.12,
+        }, this.scene);
+        rail.position = new Vector3(h.x + (x0 + x1) / 2, 0.78, fz);
+        rail.material = picketMat;
+        rail.isPickable = false;
+      });
+    });
+  }
+
+  // Bright striped awnings angled over each downtown shop door.
+  _decorShopAwnings() {
+    const whiteMat = this._dmat('decor_awningWhiteMat', 1, 1, 1);
+    const stripeColors = [
+      [0.25, 0.50, 0.95], // cafe — blue/white
+      [0.30, 0.78, 0.40], // toys — green/white
+      [0.92, 0.22, 0.25], // bakery — red/white
+      [0.15, 0.70, 0.65], // vet — teal/white
+    ];
+    DOWNTOWN_SHOPS.forEach((shop, i) => {
+      const front = shop.z + 5; // shop front wall plane (+Z)
+      const colorMat = this._dmat(`decor_awningColorMat_${i}`,
+        stripeColors[i][0], stripeColors[i][1], stripeColors[i][2]);
+      for (let s = 0; s < 5; s++) {
+        const stripe = MeshBuilder.CreateBox(`decor_awningStripe_${i}_${s}`, {
+          width: 1.0, depth: 2.4, height: 0.12,
+        }, this.scene);
+        stripe.position = new Vector3(shop.x - 2 + s * 1.0, 4.0, front + 1.0);
+        stripe.rotation.x = -0.45; // slopes down toward the street
+        stripe.material = s % 2 ? whiteMat : colorMat;
+        stripe.isPickable = false;
+      }
+    });
+  }
+
+  // Dog park props: red fire hydrant, two park benches, and a water bowl.
+  // Positions stay clear of the existing dog park balls.
+  _decorDogParkProps() {
+    // ── Fire hydrant at (-60, 32) ──
+    const hydrantMat = this._dmat('decor_hydrantMat', 0.90, 0.15, 0.15);
+    const hx = -60, hz = 32;
+    const hydrantBody = MeshBuilder.CreateCylinder('decor_hydrantBody', {
+      height: 1.0, diameter: 0.7, tessellation: 12,
+    }, this.scene);
+    hydrantBody.position = new Vector3(hx, 0.85, hz);
+    hydrantBody.material = hydrantMat;
+    hydrantBody.isPickable = false;
+
+    const hydrantCap = MeshBuilder.CreateSphere('decor_hydrantCap', {
+      diameter: 0.7, segments: 8,
+    }, this.scene);
+    hydrantCap.position = new Vector3(hx, 1.38, hz);
+    hydrantCap.scaling.y = 0.6;
+    hydrantCap.material = hydrantMat;
+    hydrantCap.isPickable = false;
+
+    [-1, 1].forEach((dir, i) => {
+      const nozzle = MeshBuilder.CreateCylinder(`decor_hydrantNozzle_${i}`, {
+        height: 0.35, diameter: 0.22, tessellation: 8,
+      }, this.scene);
+      nozzle.rotation.z = Math.PI / 2;
+      nozzle.position = new Vector3(hx + dir * 0.45, 1.0, hz);
+      nozzle.material = hydrantMat;
+      nozzle.isPickable = false;
+    });
+
+    // ── Two park benches ──
+    const benchWood = this._dmat('decor_benchWoodMat', 0.72, 0.50, 0.28);
+    [[-82, 28, 0.5], [-58, 8, -0.9]].forEach(([bx, bz, ry], bi) => {
+      const benchRoot = new TransformNode(`decor_benchRoot_${bi}`, this.scene);
+      benchRoot.position = new Vector3(bx, 0.32, bz);
+      benchRoot.rotation.y = ry;
+
+      [[-1.1, 0], [1.1, 0]].forEach(([lx, lz], li) => {
+        const leg = MeshBuilder.CreateBox(`decor_benchLeg_${bi}_${li}`, {
+          width: 0.25, depth: 0.7, height: 0.55,
+        }, this.scene);
+        leg.parent = benchRoot;
+        leg.position = new Vector3(lx, 0.28, lz);
+        leg.material = benchWood;
+        leg.isPickable = false;
+      });
+
+      const seat = MeshBuilder.CreateBox(`decor_benchSeat_${bi}`, {
+        width: 2.8, depth: 0.8, height: 0.15,
+      }, this.scene);
+      seat.parent = benchRoot;
+      seat.position = new Vector3(0, 0.62, 0);
+      seat.material = benchWood;
+      seat.isPickable = false;
+
+      const back = MeshBuilder.CreateBox(`decor_benchBack_${bi}`, {
+        width: 2.8, depth: 0.12, height: 0.85,
+      }, this.scene);
+      back.parent = benchRoot;
+      back.position = new Vector3(0, 1.1, -0.35);
+      back.material = benchWood;
+      back.isPickable = false;
+    });
+
+    // ── Water bowl near the hydrant ──
+    const bowl = MeshBuilder.CreateCylinder('decor_waterBowl', {
+      height: 0.28, diameterTop: 1.0, diameterBottom: 0.8, tessellation: 14,
+    }, this.scene);
+    bowl.position = new Vector3(-68, 0.48, 32);
+    bowl.material = this._dmat('decor_waterBowlMat', 0.90, 0.30, 0.30);
+    bowl.isPickable = false;
+
+    const bowlWater = MeshBuilder.CreateCylinder('decor_waterBowlWater', {
+      height: 0.06, diameter: 0.85, tessellation: 14,
+    }, this.scene);
+    bowlWater.position = new Vector3(-68, 0.60, 32);
+    const waterMat = this._dmat('decor_bowlWaterMat', 0.30, 0.65, 1.0);
+    waterMat.alpha = 0.9;
+    bowlWater.material = waterMat;
+    bowlWater.isPickable = false;
   }
 
   // Find which zone (if any) a 3D point falls inside. Returns the zone def

@@ -1,42 +1,67 @@
-// AgilityCourseMesh — builds the 8-obstacle agility course inside the
-// Dog Show Arena. All geometry is Babylon.js primitives; no external assets.
-// The course is laid out in a roughly oval clockwise path.
+// AgilityCourseMesh — builds an interactive dog agility course in a bright
+// Puppy Dog Pals cartoon style. All geometry is Babylon.js primitives; no
+// external assets.
+//
+// Course route (player runs it with the dog, hopping hurdles with Space):
+//   start arch → 4 jump hurdles in a line → weave poles → tunnel → finish flags
+// Decorative side pieces: A-frame ramp + tire jump (visual only).
+//
+// Everything stays inside roughly x=85..115, z=45..80 so it doesn't collide
+// with other world zones.
+//
+// Interactive API:
+//   getHurdles()      → [{ index, x, z, jumpAxis, barY }] for jump detection
+//   knockBar(index)   → animates hurdle bar i popping off and tumbling to ground
+//   resetBars()       → restores all knocked bars to their posts (new run)
 import {
   MeshBuilder,
   StandardMaterial,
   Color3,
   Vector3,
   TransformNode,
-  Animation,
 } from '@babylonjs/core';
 
 export const AGILITY_COURSE_CENTER = { x: 100, z: 60 };
 
-// Obstacle layout — relative offsets from course center, laid out in an oval.
-// The dog travels: start/finish → hurdle1 → weave → tunnel → pause table →
-// seesaw → A-frame → hurdle2 → back to start/finish.
-const OBSTACLE_DEFS = [
-  { id: 'start',      relX:  0,   relZ:  14,  label: 'Start / Finish' },
-  { id: 'hurdle1',    relX: -10,  relZ:  10,  label: 'Hurdle Jump' },
-  { id: 'weave',      relX: -16,  relZ:   2,  label: 'Weave Poles' },
-  { id: 'tunnel',     relX: -12,  relZ:  -9,  label: 'Tunnel' },
-  { id: 'pause',      relX:  -2,  relZ: -14,  label: 'Pause Table' },
-  { id: 'seesaw',     relX:   9,  relZ: -11,  label: 'Seesaw / Teeter' },
-  { id: 'aframe',     relX:  16,  relZ:  -2,  label: 'A-Frame Ramp' },
-  { id: 'hurdle2',    relX:  11,  relZ:   9,  label: 'High Hurdle' },
-];
+// ── Course layout (absolute world coordinates) ─────────────────────────────
+// The run goes south along x=100 over the hurdles, turns west along z=54
+// through the weave poles, then north along x=88 through the tunnel to finish.
 
-// Checkpoint radius — how close the player needs to get to trigger each one.
-const CHECKPOINT_RADII = {
-  start:   3.5,
-  hurdle1: 2.5,
-  weave:   3.0,
-  tunnel:  3.5,
-  pause:   2.5,
-  seesaw:  3.0,
-  aframe:  3.0,
-  hurdle2: 2.5,
-};
+const START_POS  = { x: 100, z: 78 };               // start arch
+const HURDLES    = [                                 // 4 hurdles, run along -z
+  { x: 100, z: 73 },
+  { x: 100, z: 68 },
+  { x: 100, z: 63 },
+  { x: 100, z: 58 },
+];
+const HURDLE_BAR_Y = 1.0;       // bar center height — dog hops 1.9 so clearable
+const HURDLE_WIDTH = 3.0;       // bar span (along x; the player crosses along z)
+const BAR_REST_Y   = 0.27;      // where a knocked bar comes to rest on the ground
+
+const WEAVE_Z      = 54;                             // weave runs along -x
+const WEAVE_POLES  = [95, 94, 93, 92, 91, 90];       // 6 pole x positions
+const TUNNEL_POS   = { x: 88, z: 60 };               // tunnel runs along z
+const TUNNEL_LEN   = 6.0;
+const FINISH_POS   = { x: 88, z: 71 };               // finish flags
+
+// Decorative obstacles off the path
+const AFRAME_POS   = { x: 110, z: 66 };
+const TIRE_POS     = { x: 110, z: 53 };
+
+// Checkpoints in course order: start, after each hurdle, weave entrance,
+// weave exit, tunnel exit, finish. Hurdles sit ON the path between the
+// start/after-hurdle checkpoints so the dog must cross them.
+const CHECKPOINT_DEFS = [
+  { id: 'start',      x: 100,  z: 78,   radius: 3.5, label: 'Start' },
+  { id: 'hurdle1',    x: 100,  z: 70.5, radius: 2.5, label: 'Hurdle 1' },
+  { id: 'hurdle2',    x: 100,  z: 65.5, radius: 2.5, label: 'Hurdle 2' },
+  { id: 'hurdle3',    x: 100,  z: 60.5, radius: 2.5, label: 'Hurdle 3' },
+  { id: 'hurdle4',    x: 100,  z: 55.8, radius: 2.5, label: 'Hurdle 4' },
+  { id: 'weaveIn',    x: 96,   z: 54,   radius: 2.5, label: 'Weave Entrance' },
+  { id: 'weaveOut',   x: 89.5, z: 54,   radius: 2.5, label: 'Weave Exit' },
+  { id: 'tunnelOut',  x: 88,   z: 64.5, radius: 3.0, label: 'Tunnel Exit' },
+  { id: 'finish',     x: 88,   z: 71,   radius: 3.0, label: 'Finish' },
+];
 
 export class AgilityCourseMesh {
   constructor(scene) {
@@ -44,69 +69,91 @@ export class AgilityCourseMesh {
     this._meshes = [];       // all meshes for show/hide
     this._root = null;       // TransformNode parent
     this._obstacleMap = {};  // id → meshes[]
-    this._seesawPlank = null;
-    this._seesawAnim = null;
+    this._matCache = {};     // name → StandardMaterial (shared materials)
+    this._hurdles = [];      // [{ index, x, z, jumpAxis, barY, bar, knocked, anim }]
+    this._knockObs = null;   // onBeforeRenderObservable handle for bar physics
   }
 
   // ── Public API ─────────────────────────────────────────────────────────
 
   build() {
-    const cx = AGILITY_COURSE_CENTER.x;
-    const cz = AGILITY_COURSE_CENTER.z;
-
     this._root = new TransformNode('agilityCourseRoot', this.scene);
 
-    // Ground mat for the course — sandy arena floor tint
+    // Sandy arena floor — sized to stay inside x=85..115, z=45..80
     const arenaFloor = MeshBuilder.CreateBox('agility_floor', {
-      width: 42, depth: 38, height: 0.15,
+      width: 30, depth: 35, height: 0.15,
     }, this.scene);
-    arenaFloor.position = new Vector3(cx, 0.08, cz);
+    arenaFloor.position = new Vector3(100, 0.08, 62.5);
     arenaFloor.material = this._mat('agility_floorMat', [0.94, 0.85, 0.65]);
-    arenaFloor.parent = this._root;
-    this._meshes.push(arenaFloor);
+    this._register(arenaFloor);
 
-    // Small numbered marker discs at each checkpoint position
-    OBSTACLE_DEFS.forEach((def, i) => {
-      const disc = MeshBuilder.CreateCylinder(`agility_marker_${def.id}`, {
-        height: 0.05, diameter: 1.2, tessellation: 16,
-      }, this.scene);
-      disc.position = new Vector3(cx + def.relX, 0.18, cz + def.relZ);
-      disc.material = this._mat(`agility_markerMat_${def.id}`, [1.0, 0.85, 0.2]);
-      disc.parent = this._root;
-      this._meshes.push(disc);
-    });
-
-    // Build each obstacle
-    this._buildStart(cx, cz);
-    this._buildHurdle('hurdle1', cx, cz, 1.2);
-    this._buildWeave(cx, cz);
-    this._buildTunnel(cx, cz);
-    this._buildPauseTable(cx, cz);
-    this._buildSeesaw(cx, cz);
-    this._buildAFrame(cx, cz);
-    this._buildHurdle('hurdle2', cx, cz, 1.8);
+    this._buildPath();
+    this._buildStartArch();
+    HURDLES.forEach((pos, i) => this._buildHurdle(i, pos.x, pos.z));
+    this._buildWeave();
+    this._buildTunnel();
+    this._buildFinishFlags();
+    this._buildAFrame();
+    this._buildTireJump();
   }
 
   show() {
     this._meshes.forEach(m => { m.setEnabled(true); });
-    if (this._seesawAnim) this._seesawAnim.pause = false;
   }
 
   hide() {
+    // Settle any mid-air knocked bars instantly and stop the physics observer
+    // so nothing keeps animating while the course is hidden.
+    this._hurdles.forEach(h => { if (h.anim) this._settleBar(h); });
+    this._removeKnockObserver();
     this._meshes.forEach(m => { m.setEnabled(false); });
-    if (this._seesawAnim) this._seesawAnim.pause = true;
   }
 
+  // Returns the ordered course checkpoints. Each entry keeps {x, z} (consumed
+  // by WorldScene3D) plus id/radius/label for richer consumers.
   getCheckpoints() {
-    const cx = AGILITY_COURSE_CENTER.x;
-    const cz = AGILITY_COURSE_CENTER.z;
-    return OBSTACLE_DEFS.map(def => ({
-      id:     def.id,
-      x:      cx + def.relX,
-      z:      cz + def.relZ,
-      radius: CHECKPOINT_RADII[def.id] ?? 2.5,
-      label:  def.label,
+    return CHECKPOINT_DEFS.map(def => ({ ...def }));
+  }
+
+  // Returns hurdle descriptors for jump detection.
+  // jumpAxis is the axis the player travels along when crossing the hurdle
+  // (the bar spans the perpendicular axis). barY is the bar center height.
+  getHurdles() {
+    return this._hurdles.map(h => ({
+      index:    h.index,
+      x:        h.x,
+      z:        h.z,
+      jumpAxis: h.jumpAxis,
+      barY:     h.barY,
     }));
+  }
+
+  // Animates bar `index` being knocked off: pops up slightly, tumbles to the
+  // ground with rotation, and stays there. Visual only; safe to call once per
+  // hurdle (repeat calls while knocked are ignored until resetBars()).
+  knockBar(index) {
+    const h = this._hurdles[index];
+    if (!h || h.knocked) return;
+    h.knocked = true;
+    h.anim = {
+      vy:     2.4,                                  // initial upward pop
+      vz:     1.4 + Math.random() * 0.8,            // tumble forward (+z, travel dir)
+      vx:     (Math.random() - 0.5) * 0.8,          // slight sideways drift
+      spin:   5.0 + Math.random() * 3.0,            // roll around bar's long axis
+      wobble: (Math.random() - 0.5) * 2.0,          // slight yaw wobble
+    };
+    this._ensureKnockObserver();
+  }
+
+  // Restores all knocked bars to their posts (call when a new run starts).
+  resetBars() {
+    this._hurdles.forEach(h => {
+      h.anim = null;
+      h.knocked = false;
+      h.bar.position.copyFrom(h.barRestPosition);
+      h.bar.rotation.set(0, 0, 0);
+    });
+    this._removeKnockObserver();
   }
 
   // Flash the obstacle group green briefly (500 ms).
@@ -131,409 +178,387 @@ export class AgilityCourseMesh {
     }, 500);
   }
 
+  // ── Knocked-bar physics (self-contained, per-frame) ────────────────────
+
+  _ensureKnockObserver() {
+    if (this._knockObs) return;
+    this._knockObs = this.scene.onBeforeRenderObservable.add(() => {
+      const dt = Math.min(this.scene.getEngine().getDeltaTime() / 1000, 0.05);
+      let anyActive = false;
+      for (const h of this._hurdles) {
+        const a = h.anim;
+        if (!a) continue;
+        anyActive = true;
+        a.vy -= 9.8 * dt;                       // gravity
+        h.bar.position.y += a.vy * dt;
+        h.bar.position.z += a.vz * dt;
+        h.bar.position.x += a.vx * dt;
+        h.bar.rotation.x += a.spin * dt;
+        h.bar.rotation.y += a.wobble * dt;
+        if (h.bar.position.y <= BAR_REST_Y && a.vy < 0) {
+          this._settleBar(h);
+        }
+      }
+      if (!anyActive) this._removeKnockObserver();
+    });
+  }
+
+  _removeKnockObserver() {
+    if (this._knockObs) {
+      this.scene.onBeforeRenderObservable.remove(this._knockObs);
+      this._knockObs = null;
+    }
+  }
+
+  // Bar comes to rest flat on the ground (keeps a little yaw for a natural look).
+  _settleBar(h) {
+    h.bar.position.y = BAR_REST_Y;
+    h.bar.rotation.x = 0;
+    h.bar.rotation.y = (Math.random() - 0.5) * 0.5;
+    h.anim = null;
+  }
+
   // ── Obstacle builders ──────────────────────────────────────────────────
 
-  // 1. START / FINISH arch — two tall striped posts + horizontal crossbar
-  _buildStart(cx, cz) {
-    const def = OBSTACLE_DEFS.find(d => d.id === 'start');
-    const ox = cx + def.relX;
-    const oz = cz + def.relZ;
+  // Light tan path strips marking the route: start → hurdles → weave →
+  // tunnel → finish.
+  _buildPath() {
     const group = [];
+    const strips = [
+      // South leg: under the start arch and all 4 hurdles (along z at x=100)
+      { x: 100, z: 66.5, width: 1.8,  depth: 25.0 },
+      // West leg: turn toward the weave poles (along x at z=54)
+      { x: 94,  z: 54,   width: 13.8, depth: 1.8 },
+      // North leg: through the tunnel to the finish (along z at x=88)
+      { x: 88,  z: 62.5, width: 1.8,  depth: 18.8 },
+    ];
+    strips.forEach((s, i) => {
+      const strip = MeshBuilder.CreateBox(`agility_path_${i}`, {
+        width: s.width, depth: s.depth, height: 0.06,
+      }, this.scene);
+      strip.position = new Vector3(s.x, 0.19, s.z);
+      strip.material = this._mat('agility_pathMat', [0.96, 0.91, 0.78]);
+      group.push(strip);
+    });
+    group.forEach(m => this._register(m));
+    this._obstacleMap['path'] = group;
+  }
 
-    const postH = 4.5;
-    const archW = 3.2;
+  // Start arch — two striped posts + a colorful banner box overhead.
+  _buildStartArch() {
+    const { x: ox, z: oz } = START_POS;
+    const group = [];
+    const postH = 3.6;
+    const archHalf = 1.9;
 
-    // Left post
-    const postL = MeshBuilder.CreateCylinder('agility_start_postL', {
-      height: postH, diameter: 0.35, tessellation: 12,
+    [-1, 1].forEach((side, i) => {
+      group.push(...this._stripedPost(
+        `agility_start_post_${i}`,
+        ox + side * archHalf, oz, postH, 0.4,
+        [0.92, 0.15, 0.15], [1, 1, 1],
+      ));
+    });
+
+    // Banner box overhead (the "START" banner)
+    const banner = MeshBuilder.CreateBox('agility_start_banner', {
+      width: archHalf * 2 + 0.6, depth: 0.25, height: 0.9,
     }, this.scene);
-    postL.position = new Vector3(ox - archW / 2, postH / 2, oz);
-    postL.material = this._stripedMat('agility_start_matL', [0.9, 0.1, 0.1], [1, 1, 1]);
-    group.push(postL);
+    banner.position = new Vector3(ox, postH + 0.25, oz);
+    banner.material = this._mat('agility_start_bannerMat', [0.35, 0.65, 1.0]);
+    group.push(banner);
 
-    // Right post
-    const postR = MeshBuilder.CreateCylinder('agility_start_postR', {
-      height: postH, diameter: 0.35, tessellation: 12,
-    }, this.scene);
-    postR.position = new Vector3(ox + archW / 2, postH / 2, oz);
-    postR.material = this._stripedMat('agility_start_matR', [0.9, 0.1, 0.1], [1, 1, 1]);
-    group.push(postR);
+    // Yellow trim strips on the banner for cartoon pop
+    [-1, 1].forEach((side, i) => {
+      const trim = MeshBuilder.CreateBox(`agility_start_trim_${i}`, {
+        width: archHalf * 2 + 0.7, depth: 0.27, height: 0.12,
+      }, this.scene);
+      trim.position = new Vector3(ox, postH + 0.25 + side * 0.45, oz);
+      trim.material = this._mat('agility_yellowMat', [1.0, 0.85, 0.1]);
+      group.push(trim);
+    });
 
-    // Horizontal crossbar at top
-    const bar = MeshBuilder.CreateBox('agility_start_bar', {
-      width: archW + 0.35, depth: 0.35, height: 0.35,
-    }, this.scene);
-    bar.position = new Vector3(ox, postH - 0.2, oz);
-    bar.material = this._mat('agility_start_barMat', [0.9, 0.1, 0.1]);
-    group.push(bar);
-
-    // "START" sign plate on the bar
-    const sign = MeshBuilder.CreateBox('agility_start_sign', {
-      width: 2.0, depth: 0.12, height: 0.6,
-    }, this.scene);
-    sign.position = new Vector3(ox, postH + 0.1, oz);
-    sign.material = this._mat('agility_start_signMat', [1.0, 0.85, 0.2]);
-    group.push(sign);
-
-    group.forEach(m => { m.parent = this._root; this._meshes.push(m); });
+    group.forEach(m => this._register(m));
     this._obstacleMap['start'] = group;
   }
 
-  // 2 & 8. Hurdle jump — two short posts + a thin crossbar the dog jumps over.
-  _buildHurdle(id, cx, cz, barHeight) {
-    const def = OBSTACLE_DEFS.find(d => d.id === id);
-    const ox = cx + def.relX;
-    const oz = cz + def.relZ;
+  // One jump hurdle: red/white striped posts (3 stacked cylinder segments
+  // each) + a bright yellow knockable bar resting in little cups.
+  _buildHurdle(index, ox, oz) {
     const group = [];
+    const postH = HURDLE_BAR_Y + 0.35;
 
-    const hurdleW = 2.8;
-    const postH = barHeight + 0.5;
-
-    const postL = MeshBuilder.CreateCylinder(`agility_${id}_postL`, {
-      height: postH, diameter: 0.22, tessellation: 8,
-    }, this.scene);
-    postL.position = new Vector3(ox - hurdleW / 2, postH / 2, oz);
-    postL.material = this._mat(`agility_${id}_postMatL`, [0.3, 0.5, 0.9]);
-    group.push(postL);
-
-    const postR = MeshBuilder.CreateCylinder(`agility_${id}_postR`, {
-      height: postH, diameter: 0.22, tessellation: 8,
-    }, this.scene);
-    postR.position = new Vector3(ox + hurdleW / 2, postH / 2, oz);
-    postR.material = this._mat(`agility_${id}_postMatR`, [0.3, 0.5, 0.9]);
-    group.push(postR);
-
-    // The bar to jump over — bright orange so it's visible
-    const bar = MeshBuilder.CreateBox(`agility_${id}_bar`, {
-      width: hurdleW + 0.22, depth: 0.18, height: 0.18,
-    }, this.scene);
-    bar.position = new Vector3(ox, barHeight, oz);
-    bar.material = this._mat(`agility_${id}_barMat`, [1.0, 0.5, 0.1]);
-    group.push(bar);
-
-    // Small foot-cups holding the bar on each post
     [-1, 1].forEach((side, i) => {
-      const cup = MeshBuilder.CreateBox(`agility_${id}_cup_${i}`, {
-        width: 0.3, depth: 0.3, height: 0.12,
+      group.push(...this._stripedPost(
+        `agility_hurdle${index}_post_${i}`,
+        ox + side * HURDLE_WIDTH / 2, oz, postH, 0.3,
+        [0.92, 0.15, 0.15], [1, 1, 1],
+      ));
+      // Cup that the bar rests in
+      const cup = MeshBuilder.CreateBox(`agility_hurdle${index}_cup_${i}`, {
+        width: 0.34, depth: 0.34, height: 0.14,
       }, this.scene);
-      cup.position = new Vector3(ox + side * hurdleW / 2, barHeight, oz);
-      cup.material = this._mat(`agility_${id}_cupMat_${i}`, [0.8, 0.8, 0.8]);
+      cup.position = new Vector3(ox + side * HURDLE_WIDTH / 2, HURDLE_BAR_Y - 0.14, oz);
+      cup.material = this._mat('agility_cupMat', [0.85, 0.85, 0.85]);
       group.push(cup);
     });
 
-    group.forEach(m => { m.parent = this._root; this._meshes.push(m); });
-    this._obstacleMap[id] = group;
+    // The knockable bright yellow bar (spans x; player crosses along z)
+    const bar = MeshBuilder.CreateBox(`agility_hurdle${index}_bar`, {
+      width: HURDLE_WIDTH + 0.3, depth: 0.2, height: 0.2,
+    }, this.scene);
+    bar.position = new Vector3(ox, HURDLE_BAR_Y, oz);
+    bar.material = this._mat('agility_barMat', [1.0, 0.85, 0.1]);
+    group.push(bar);
+
+    this._hurdles.push({
+      index,
+      x: ox,
+      z: oz,
+      jumpAxis: 'z',            // travel axis when crossing (bar spans x)
+      barY: HURDLE_BAR_Y,
+      bar,
+      barRestPosition: bar.position.clone(),
+      knocked: false,
+      anim: null,
+    });
+
+    group.forEach(m => this._register(m));
+    this._obstacleMap[`hurdle${index + 1}`] = group;
   }
 
-  // 3. Weave poles — 6 thin cylinders in a line, alternating red/white
-  _buildWeave(cx, cz) {
-    const def = OBSTACLE_DEFS.find(d => d.id === 'weave');
-    const ox = cx + def.relX;
-    const oz = cz + def.relZ;
+  // 6 weave poles alternating blue/orange with little red flag cones on top.
+  _buildWeave() {
     const group = [];
+    const poleH = 1.9;
 
-    const count = 6;
-    const spacing = 0.8;
-    const poleH = 2.0;
-
-    for (let i = 0; i < count; i++) {
+    WEAVE_POLES.forEach((px, i) => {
       const pole = MeshBuilder.CreateCylinder(`agility_weave_pole_${i}`, {
-        height: poleH, diameter: 0.14, tessellation: 10,
+        height: poleH, diameter: 0.16, tessellation: 10,
       }, this.scene);
-      pole.position = new Vector3(ox, poleH / 2, oz - (count / 2 - 0.5) * spacing + i * spacing);
-      pole.material = this._mat(`agility_weave_poleMat_${i}`,
-        i % 2 === 0 ? [0.9, 0.15, 0.15] : [1, 1, 1]);
+      pole.position = new Vector3(px, poleH / 2, WEAVE_Z);
+      pole.material = i % 2 === 0
+        ? this._mat('agility_weaveBlueMat',   [0.25, 0.5, 0.95])
+        : this._mat('agility_weaveOrangeMat', [1.0, 0.55, 0.1]);
       group.push(pole);
-    }
+
+      // Small flag cone on top
+      const cone = MeshBuilder.CreateCylinder(`agility_weave_flag_${i}`, {
+        height: 0.3, diameterBottom: 0.26, diameterTop: 0, tessellation: 8,
+      }, this.scene);
+      cone.position = new Vector3(px, poleH + 0.15, WEAVE_Z);
+      cone.material = this._mat('agility_flagRedMat', [0.95, 0.2, 0.2]);
+      group.push(cone);
+    });
 
     // Base plate so poles look planted
     const base = MeshBuilder.CreateBox('agility_weave_base', {
-      width: 0.3, depth: count * spacing + 0.4, height: 0.1,
+      width: (WEAVE_POLES.length - 1) * 1.0 + 0.6, depth: 0.32, height: 0.1,
     }, this.scene);
-    base.position = new Vector3(ox, 0.05, oz);
-    base.material = this._mat('agility_weave_baseMat', [0.5, 0.5, 0.5]);
+    base.position = new Vector3(
+      (WEAVE_POLES[0] + WEAVE_POLES[WEAVE_POLES.length - 1]) / 2, 0.05, WEAVE_Z,
+    );
+    base.material = this._mat('agility_greyMat', [0.55, 0.55, 0.55]);
     group.push(base);
 
-    group.forEach(m => { m.parent = this._root; this._meshes.push(m); });
+    group.forEach(m => this._register(m));
     this._obstacleMap['weave'] = group;
   }
 
-  // 4. Tunnel — yellow cylinder on its side, open both ends
-  _buildTunnel(cx, cz) {
-    const def = OBSTACLE_DEFS.find(d => d.id === 'tunnel');
-    const ox = cx + def.relX;
-    const oz = cz + def.relZ;
+  // Big friendly teal tunnel — an open tube (no end caps), slightly
+  // transparent so the dog stays visible inside. Runs along z.
+  _buildTunnel() {
+    const { x: ox, z: oz } = TUNNEL_POS;
     const group = [];
+    const radius = 1.0;
 
-    const tunnelLen = 5.0;
-    const tunnelDia = 1.8;
-
-    // Outer tube
-    const tube = MeshBuilder.CreateCylinder('agility_tunnel_tube', {
-      height: tunnelLen, diameter: tunnelDia, tessellation: 18,
+    const tube = MeshBuilder.CreateTube('agility_tunnel_tube', {
+      path: [
+        new Vector3(ox, radius, oz - TUNNEL_LEN / 2),
+        new Vector3(ox, radius, oz + TUNNEL_LEN / 2),
+      ],
+      radius,
+      tessellation: 20,
     }, this.scene);
-    tube.rotation.x = Math.PI / 2; // lay on side (along Z axis)
-    tube.position = new Vector3(ox, tunnelDia / 2, oz);
-    const tubeMat = this._mat('agility_tunnel_tubeMat', [1.0, 0.85, 0.15]);
-    tubeMat.backFaceCulling = false; // visible inside
+    const tubeMat = this._mat('agility_tunnel_tubeMat', [0.1, 0.75, 0.75]);
+    tubeMat.backFaceCulling = false;  // visible from inside
+    tubeMat.alpha = 0.75;             // slightly transparent
     tube.material = tubeMat;
     group.push(tube);
 
-    // Dark inner lining — slightly smaller cylinder to fake hollow interior
-    const inner = MeshBuilder.CreateCylinder('agility_tunnel_inner', {
-      height: tunnelLen - 0.1, diameter: tunnelDia - 0.18, tessellation: 18,
-    }, this.scene);
-    inner.rotation.x = Math.PI / 2;
-    inner.position = new Vector3(ox, tunnelDia / 2, oz);
-    const innerMat = this._mat('agility_tunnel_innerMat', [0.15, 0.1, 0.1]);
-    innerMat.backFaceCulling = false;
-    inner.material = innerMat;
-    group.push(inner);
-
-    // Entry/exit rings (slightly wider cylinder slices)
+    // Entry/exit rings for a chunky cartoon rim
     [-1, 1].forEach((side, i) => {
-      const ring = MeshBuilder.CreateCylinder(`agility_tunnel_ring_${i}`, {
-        height: 0.18, diameter: tunnelDia + 0.15, tessellation: 18,
+      const ring = MeshBuilder.CreateTorus(`agility_tunnel_ring_${i}`, {
+        diameter: radius * 2 + 0.1, thickness: 0.16, tessellation: 20,
       }, this.scene);
-      ring.rotation.x = Math.PI / 2;
-      ring.position = new Vector3(ox, tunnelDia / 2, oz + side * (tunnelLen / 2));
-      ring.material = this._mat(`agility_tunnel_ringMat_${i}`, [0.85, 0.55, 0.05]);
+      ring.rotation.x = Math.PI / 2;  // torus axis along z
+      ring.position = new Vector3(ox, radius, oz + side * (TUNNEL_LEN / 2));
+      ring.material = this._mat('agility_tunnel_ringMat', [0.05, 0.5, 0.5]);
       group.push(ring);
     });
 
-    group.forEach(m => { m.parent = this._root; this._meshes.push(m); });
+    group.forEach(m => this._register(m));
     this._obstacleMap['tunnel'] = group;
   }
 
-  // 5. Pause table — flat raised platform
-  _buildPauseTable(cx, cz) {
-    const def = OBSTACLE_DEFS.find(d => d.id === 'pause');
-    const ox = cx + def.relX;
-    const oz = cz + def.relZ;
+  // Finish flags — two posts with small triangle-ish pennant flags.
+  _buildFinishFlags() {
+    const { x: ox, z: oz } = FINISH_POS;
     const group = [];
+    const postH = 2.4;
 
-    const tableH = 0.4;
-    const tableY = tableH + 0.4; // raised off ground
-
-    // Table top surface
-    const top = MeshBuilder.CreateBox('agility_pause_top', {
-      width: 2.2, depth: 2.2, height: tableH,
-    }, this.scene);
-    top.position = new Vector3(ox, tableY + tableH / 2, oz);
-    top.material = this._mat('agility_pause_topMat', [0.3, 0.55, 0.9]);
-    group.push(top);
-
-    // Contrasting border strip on the table surface
-    const border = MeshBuilder.CreateBox('agility_pause_border', {
-      width: 2.2, depth: 2.2, height: 0.06,
-    }, this.scene);
-    border.position = new Vector3(ox, tableY + tableH + 0.03, oz);
-    border.material = this._mat('agility_pause_borderMat', [1, 1, 1]);
-    group.push(border);
-    const borderInner = MeshBuilder.CreateBox('agility_pause_borderInner', {
-      width: 1.8, depth: 1.8, height: 0.07,
-    }, this.scene);
-    borderInner.position = new Vector3(ox, tableY + tableH + 0.04, oz);
-    borderInner.material = this._mat('agility_pause_borderInnerMat', [0.3, 0.55, 0.9]);
-    group.push(borderInner);
-
-    // 4 legs
-    const legH = tableY;
-    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([dx, dz], i) => {
-      const leg = MeshBuilder.CreateBox(`agility_pause_leg_${i}`, {
-        width: 0.2, depth: 0.2, height: legH,
+    [-1, 1].forEach((side, i) => {
+      const post = MeshBuilder.CreateCylinder(`agility_finish_post_${i}`, {
+        height: postH, diameter: 0.18, tessellation: 10,
       }, this.scene);
-      leg.position = new Vector3(ox + dx * 0.9, legH / 2, oz + dz * 0.9);
-      leg.material = this._mat(`agility_pause_legMat_${i}`, [0.2, 0.35, 0.7]);
-      group.push(leg);
+      post.position = new Vector3(ox + side * 1.6, postH / 2, oz);
+      post.material = this._mat('agility_whiteMat', [1, 1, 1]);
+      group.push(post);
+
+      // Pennant: two stacked thin boxes that taper toward the tip
+      const flagColors = i === 0 ? [0.95, 0.2, 0.2] : [0.25, 0.5, 0.95];
+      const flagA = MeshBuilder.CreateBox(`agility_finish_flagA_${i}`, {
+        width: 0.7, depth: 0.05, height: 0.34,
+      }, this.scene);
+      flagA.position = new Vector3(ox + side * 1.6 + side * 0.35, postH - 0.25, oz);
+      flagA.material = this._mat(`agility_finish_flagMat_${i}`, flagColors);
+      group.push(flagA);
+      const flagB = MeshBuilder.CreateBox(`agility_finish_flagB_${i}`, {
+        width: 0.35, depth: 0.05, height: 0.18,
+      }, this.scene);
+      flagB.position = new Vector3(ox + side * 1.6 + side * 0.85, postH - 0.25, oz);
+      flagB.material = this._mat(`agility_finish_flagMat_${i}`, flagColors);
+      group.push(flagB);
     });
 
-    group.forEach(m => { m.parent = this._root; this._meshes.push(m); });
-    this._obstacleMap['pause'] = group;
+    group.forEach(m => this._register(m));
+    this._obstacleMap['finish'] = group;
   }
 
-  // 6. Seesaw / teeter — a plank on a cylinder pivot, gently animated
-  _buildSeesaw(cx, cz) {
-    const def = OBSTACLE_DEFS.find(d => d.id === 'seesaw');
-    const ox = cx + def.relX;
-    const oz = cz + def.relZ;
+  // A-frame ramp — two angled bright red boxes with white contact zones at
+  // the bottom edges. Decorative; placed off to the side of the path.
+  _buildAFrame() {
+    const { x: ox, z: oz } = AFRAME_POS;
     const group = [];
 
-    const plankLen = 5.0;
-    const pivotY = 0.6;
+    const rampW = 1.6;
+    const rampLen = 3.6;
+    const peakH = 2.4;
+    const rampAngle = Math.atan2(peakH, rampLen / 2);
+    const halfRun = (rampLen / 2) * Math.cos(rampAngle) * 0.5;
 
-    // Base foot
-    const foot = MeshBuilder.CreateBox('agility_seesaw_foot', {
-      width: 0.8, depth: 0.8, height: 0.15,
-    }, this.scene);
-    foot.position = new Vector3(ox, 0.075, oz);
-    foot.material = this._mat('agility_seesaw_footMat', [0.5, 0.35, 0.2]);
-    group.push(foot);
-
-    // Pivot cylinder
-    const pivot = MeshBuilder.CreateCylinder('agility_seesaw_pivot', {
-      height: 0.8, diameter: 0.45, tessellation: 14,
-    }, this.scene);
-    pivot.position = new Vector3(ox, pivotY / 2 + 0.15, oz);
-    pivot.material = this._mat('agility_seesaw_pivotMat', [0.5, 0.35, 0.2]);
-    group.push(pivot);
-
-    // Plank — yellow with contact zones (darker yellow at each end)
-    const plank = MeshBuilder.CreateBox('agility_seesaw_plank', {
-      width: 0.65, depth: plankLen, height: 0.12,
-    }, this.scene);
-    plank.position = new Vector3(ox, pivotY + 0.06, oz);
-    plank.material = this._mat('agility_seesaw_plankMat', [0.95, 0.85, 0.2]);
-    group.push(plank);
-
-    // Contact zone strips at each end of the plank (painted yellow-orange)
     [-1, 1].forEach((side, i) => {
-      const zone = MeshBuilder.CreateBox(`agility_seesaw_zone_${i}`, {
-        width: 0.66, depth: 0.9, height: 0.13,
+      // Bright red ramp panel
+      const ramp = MeshBuilder.CreateBox(`agility_aframe_ramp_${i}`, {
+        width: rampW, depth: rampLen, height: 0.2,
       }, this.scene);
-      zone.position = new Vector3(ox, pivotY + 0.065, oz + side * (plankLen / 2 - 0.5));
-      zone.material = this._mat(`agility_seesaw_zoneMat_${i}`, [1.0, 0.55, 0.1]);
+      ramp.rotation.x = side * rampAngle;
+      ramp.position = new Vector3(ox, peakH / 2, oz + side * halfRun);
+      ramp.material = this._mat('agility_aframe_redMat', [0.92, 0.15, 0.15]);
+      group.push(ramp);
+
+      // White contact zone at the bottom edge (classic dog agility)
+      const zone = MeshBuilder.CreateBox(`agility_aframe_zone_${i}`, {
+        width: rampW, depth: 1.0, height: 0.21,
+      }, this.scene);
+      zone.rotation.x = side * rampAngle;
+      zone.position = new Vector3(
+        ox, 0.3, oz + side * (rampLen / 2) * Math.cos(rampAngle) * 0.9,
+      );
+      zone.material = this._mat('agility_whiteMat', [1, 1, 1]);
       group.push(zone);
     });
 
-    // Animate the seesaw plank with a gentle rock (rotation around X)
-    const anim = new Animation(
-      'seesawRock', 'rotation.x', 30,
-      Animation.ANIMATIONTYPE_FLOAT,
-      Animation.ANIMATIONLOOPMODE_CYCLE,
-    );
-    const tiltAngle = 0.18;
-    anim.setKeys([
-      { frame: 0,   value:  tiltAngle },
-      { frame: 45,  value: -tiltAngle },
-      { frame: 90,  value:  tiltAngle },
-    ]);
-    plank.animations = [anim];
-    this._seesawAnim = this.scene.beginAnimation(plank, 0, 90, true);
-    // Sync contact zones by parenting them to the plank
-    // (re-do positions relative to plank after parenting)
-    [-1, 1].forEach((side, i) => {
-      const z = group.find(m => m.name === `agility_seesaw_zone_${i}`);
-      if (z) {
-        z.parent = plank;
-        z.position = new Vector3(0, 0.005, side * (plankLen / 2 - 0.5));
-      }
-    });
-
-    group.forEach(m => { m.parent = this._root; this._meshes.push(m); });
-    this._obstacleMap['seesaw'] = group;
-  }
-
-  // 7. A-Frame ramp — two angled ramps meeting at a peak, yellow w/ contact zones
-  _buildAFrame(cx, cz) {
-    const def = OBSTACLE_DEFS.find(d => d.id === 'aframe');
-    const ox = cx + def.relX;
-    const oz = cz + def.relZ;
-    const group = [];
-
-    const rampW = 1.4;
-    const rampLen = 3.8;
-    const peakH = 2.6;
-    const rampAngle = Math.atan2(peakH, rampLen / 2); // angle of incline
-
-    // Front ramp (going up toward +Z)
-    const rampFront = MeshBuilder.CreateBox('agility_aframe_rampFront', {
-      width: rampW, depth: rampLen, height: 0.18,
-    }, this.scene);
-    // Rotate so the ramp rises toward the center
-    rampFront.rotation.x = -rampAngle;
-    rampFront.position = new Vector3(
-      ox,
-      peakH / 2,
-      oz - rampLen / 2 * Math.cos(rampAngle) * 0.5,
-    );
-    rampFront.material = this._mat('agility_aframe_rampFrontMat', [1.0, 0.85, 0.2]);
-    group.push(rampFront);
-
-    // Back ramp (descending away from center)
-    const rampBack = MeshBuilder.CreateBox('agility_aframe_rampBack', {
-      width: rampW, depth: rampLen, height: 0.18,
-    }, this.scene);
-    rampBack.rotation.x = rampAngle;
-    rampBack.position = new Vector3(
-      ox,
-      peakH / 2,
-      oz + rampLen / 2 * Math.cos(rampAngle) * 0.5,
-    );
-    rampBack.material = this._mat('agility_aframe_rampBackMat', [1.0, 0.85, 0.2]);
-    group.push(rampBack);
-
-    // Peak ridge cap where the two ramps meet
+    // Peak ridge cap
     const peak = MeshBuilder.CreateBox('agility_aframe_peak', {
-      width: rampW + 0.1, depth: 0.3, height: 0.22,
+      width: rampW + 0.1, depth: 0.32, height: 0.24,
     }, this.scene);
     peak.position = new Vector3(ox, peakH, oz);
-    peak.material = this._mat('agility_aframe_peakMat', [0.85, 0.65, 0.1]);
+    peak.material = this._mat('agility_aframe_peakMat', [0.7, 0.08, 0.08]);
     group.push(peak);
 
-    // Contact zones at the base of each ramp (bright yellow-orange)
-    const czFront = MeshBuilder.CreateBox('agility_aframe_czFront', {
-      width: rampW, depth: 1.0, height: 0.19,
-    }, this.scene);
-    czFront.rotation.x = -rampAngle;
-    czFront.position = new Vector3(
-      ox,
-      0.28,
-      oz - rampLen / 2 * Math.cos(rampAngle) * 0.9,
-    );
-    czFront.material = this._mat('agility_aframe_czFrontMat', [1.0, 0.45, 0.05]);
-    group.push(czFront);
-
-    const czBack = MeshBuilder.CreateBox('agility_aframe_czBack', {
-      width: rampW, depth: 1.0, height: 0.19,
-    }, this.scene);
-    czBack.rotation.x = rampAngle;
-    czBack.position = new Vector3(
-      ox,
-      0.28,
-      oz + rampLen / 2 * Math.cos(rampAngle) * 0.9,
-    );
-    czBack.material = this._mat('agility_aframe_czBackMat', [1.0, 0.45, 0.05]);
-    group.push(czBack);
-
-    // Support legs
-    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([dx, dz], i) => {
-      const leg = MeshBuilder.CreateCylinder(`agility_aframe_leg_${i}`, {
-        height: 1.2, diameter: 0.12, tessellation: 8,
-      }, this.scene);
-      leg.position = new Vector3(
-        ox + dx * (rampW / 2 - 0.1),
-        0.6,
-        oz + dz * 1.2,
-      );
-      leg.material = this._mat(`agility_aframe_legMat_${i}`, [0.5, 0.35, 0.15]);
-      group.push(leg);
-    });
-
-    group.forEach(m => { m.parent = this._root; this._meshes.push(m); });
+    group.forEach(m => this._register(m));
     this._obstacleMap['aframe'] = group;
   }
 
-  // ── Material helpers ───────────────────────────────────────────────────
+  // Tire jump — a bright red-orange torus suspended from a simple frame.
+  // Decorative.
+  _buildTireJump() {
+    const { x: ox, z: oz } = TIRE_POS;
+    const group = [];
+    const frameH = 2.8;
+    const frameHalf = 1.4;
 
+    // Frame: two posts + a top bar
+    [-1, 1].forEach((side, i) => {
+      const post = MeshBuilder.CreateCylinder(`agility_tire_post_${i}`, {
+        height: frameH, diameter: 0.2, tessellation: 10,
+      }, this.scene);
+      post.position = new Vector3(ox + side * frameHalf, frameH / 2, oz);
+      post.material = this._mat('agility_tire_frameMat', [0.25, 0.5, 0.95]);
+      group.push(post);
+    });
+    const topBar = MeshBuilder.CreateBox('agility_tire_topBar', {
+      width: frameHalf * 2 + 0.3, depth: 0.2, height: 0.2,
+    }, this.scene);
+    topBar.position = new Vector3(ox, frameH, oz);
+    topBar.material = this._mat('agility_tire_frameMat', [0.25, 0.5, 0.95]);
+    group.push(topBar);
+
+    // The tire — torus facing the runway (hole along z)
+    const tire = MeshBuilder.CreateTorus('agility_tire_torus', {
+      diameter: 1.5, thickness: 0.3, tessellation: 22,
+    }, this.scene);
+    tire.rotation.x = Math.PI / 2;  // hole faces along z
+    tire.position = new Vector3(ox, 1.5, oz);
+    tire.material = this._mat('agility_tire_torusMat', [1.0, 0.35, 0.1]);
+    group.push(tire);
+
+    // Hanging strap from top bar to tire
+    const strap = MeshBuilder.CreateBox('agility_tire_strap', {
+      width: 0.1, depth: 0.1, height: frameH - 2.25,
+    }, this.scene);
+    strap.position = new Vector3(ox, (frameH + 2.25) / 2, oz);
+    strap.material = this._mat('agility_greyMat', [0.55, 0.55, 0.55]);
+    group.push(strap);
+
+    group.forEach(m => this._register(m));
+    this._obstacleMap['tire'] = group;
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+
+  // Builds a chunky striped post out of 3 stacked alternating cylinder
+  // segments (colorA, colorB, colorA). Returns the segment meshes.
+  _stripedPost(name, x, z, height, diameter, colorA, colorB) {
+    const segH = height / 3;
+    const segs = [];
+    for (let i = 0; i < 3; i++) {
+      const seg = MeshBuilder.CreateCylinder(`${name}_seg_${i}`, {
+        height: segH, diameter, tessellation: 12,
+      }, this.scene);
+      seg.position = new Vector3(x, segH * i + segH / 2, z);
+      const color = i % 2 === 0 ? colorA : colorB;
+      seg.material = this._mat(
+        i % 2 === 0 ? 'agility_postRedMat' : 'agility_postWhiteMat',
+        color,
+      );
+      segs.push(seg);
+    }
+    return segs;
+  }
+
+  _register(mesh) {
+    mesh.parent = this._root;
+    this._meshes.push(mesh);
+  }
+
+  // Shared-material factory: same name → same material instance.
   _mat(name, [r, g, b]) {
+    if (this._matCache[name]) return this._matCache[name];
     const m = new StandardMaterial(name, this.scene);
     m.diffuseColor = new Color3(r, g, b);
     m.specularColor = new Color3(0.05, 0.05, 0.05);
-    return m;
-  }
-
-  // Creates a material that visually implies red/white stripes by using a
-  // mid-tone between the two colors (Babylon StandardMaterial has no built-in
-  // procedural striping without a texture, so we alternate per-mesh instead).
-  _stripedMat(name, colorA, colorB) {
-    // We produce a chequerboard-style visual by averaging and tinting slightly.
-    const r = (colorA[0] + colorB[0]) / 2;
-    const g = (colorA[1] + colorB[1]) / 2;
-    const b = (colorA[2] + colorB[2]) / 2;
-    const m = this._mat(name, [r, g, b]);
-    // Add a slight emissive tint in the dominant color for brightness
-    m.emissiveColor = new Color3(colorA[0] * 0.15, colorA[1] * 0.15, colorA[2] * 0.15);
+    this._matCache[name] = m;
     return m;
   }
 }
