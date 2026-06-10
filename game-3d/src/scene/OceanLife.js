@@ -136,49 +136,177 @@ export class OceanLife {
       root.position.y = -1.0;
       root.position.z = this._rand(OCEAN_MIN_Z + 10, OCEAN_MAX_Z - 10);
 
-      // --- Body ---
-      const bodyMat = this._mat(`dolphinBody_${d}`, 0.40, 0.55, 0.70);
+      // --- Materials (wet-skin sheen: higher specular than fish) ---
+      const bodyMat = this._mat(`dolphinBody_${d}`, 0.32, 0.40, 0.48); // dark blue-gray back
+      bodyMat.specularColor = new Color3(0.3, 0.3, 0.3);
+      const finMat = this._mat(`dolphinFin_${d}`, 0.24, 0.31, 0.38);   // slightly darker fins
+      finMat.specularColor = new Color3(0.3, 0.3, 0.3);
+      const bellyMat = this._mat(`dolphinBelly_${d}`, 0.82, 0.86, 0.88); // light gray-white
+      bellyMat.specularColor = new Color3(0.3, 0.3, 0.3);
+      const darkMat = this._mat(`dolphinDark_${d}`, 0.05, 0.05, 0.07);  // eyes / blowhole
+
+      // Local convention: +X is forward (beak), -X is the tail.
+      // root.rotation.y flips the whole dolphin to face its travel direction.
+
+      // --- Main body: streamlined fusiform shape ---
       const body = MeshBuilder.CreateSphere(`dolphinBody_${d}`, {
         diameter: 1,
-        segments: 8,
+        segments: 10,
       }, this.scene);
-      body.scaling = new Vector3(2.4, 0.70, 0.75);
+      body.scaling = new Vector3(2.6, 0.62, 0.66);
       body.material = bodyMat;
       body.parent = root;
       this._track(body);
 
-      // --- Belly patch ---
-      const bellyMat = this._mat(`dolphinBelly_${d}`, 0.65, 0.78, 0.88);
-      const belly = MeshBuilder.CreateSphere(`dolphinBelly_${d}`, {
-        diameter: 0.85,
-        segments: 6,
+      // --- Tail stock: smaller overlapping sphere tapering toward the tail ---
+      const tailStock = MeshBuilder.CreateSphere(`dolphinTailStock_${d}`, {
+        diameter: 1,
+        segments: 8,
       }, this.scene);
-      belly.scaling = new Vector3(1.8, 0.40, 0.55);
-      belly.position.y = -0.18;
+      tailStock.scaling = new Vector3(1.6, 0.45, 0.48);
+      tailStock.position.x = -1.2;
+      tailStock.material = bodyMat;
+      tailStock.parent = root;
+      this._track(tailStock);
+
+      // --- Counter-shaded belly along the lower body ---
+      const belly = MeshBuilder.CreateSphere(`dolphinBelly_${d}`, {
+        diameter: 1,
+        segments: 8,
+      }, this.scene);
+      belly.scaling = new Vector3(1.9, 0.40, 0.55);
+      belly.position.y = -0.16;
       belly.material = bellyMat;
       belly.parent = root;
       this._track(belly);
 
-      // --- Dorsal fin ---
-      const finMat = this._mat(`dolphinFin_${d}`, 0.32, 0.46, 0.62);
-      const fin = MeshBuilder.CreateCylinder(`dolphinFin_${d}`, {
-        height: 0.70,
-        diameterTop: 0,
-        diameterBottom: 0.35,
-        tessellation: 6,
+      // --- Melon (rounded forehead) ---
+      const melon = MeshBuilder.CreateSphere(`dolphinMelon_${d}`, {
+        diameter: 0.55,
+        segments: 8,
       }, this.scene);
-      fin.position.y = 0.52;
-      fin.position.x = -0.20;
-      fin.rotation.z = 0.18; // slight tilt backward
-      fin.material = finMat;
-      fin.parent = root;
-      this._track(fin);
+      melon.scaling = new Vector3(1.0, 0.75, 0.8);
+      melon.position.x = 1.15;
+      melon.position.y = 0.05;
+      melon.material = bodyMat;
+      melon.parent = root;
+      this._track(melon);
+
+      // --- Rostrum (the bottlenose beak) ---
+      const rostrum = MeshBuilder.CreateCylinder(`dolphinRostrum_${d}`, {
+        height: 0.55,
+        diameterTop: 0.12,
+        diameterBottom: 0.28,
+        tessellation: 8,
+      }, this.scene);
+      // Cylinder axis is local Y; lay it forward along +X (narrow tip leading),
+      // angled slightly downward like a real bottlenose.
+      rostrum.rotation.z = -Math.PI / 2 - 0.08;
+      rostrum.position.x = 1.45;
+      rostrum.position.y = -0.02;
+      rostrum.material = bodyMat;
+      rostrum.parent = root;
+      this._track(rostrum);
+
+      // --- Dorsal fin: tall, swept back ---
+      const dorsal = MeshBuilder.CreateCylinder(`dolphinDorsal_${d}`, {
+        height: 0.55,
+        diameterTop: 0.02,
+        diameterBottom: 0.42,
+        tessellation: 8,
+      }, this.scene);
+      dorsal.position.y = 0.50;
+      dorsal.position.x = -0.10;
+      dorsal.rotation.z = 0.5;       // tilted backward (top leans toward tail)
+      dorsal.scaling.z = 0.35;       // thin, blade-like
+      dorsal.material = finMat;
+      dorsal.parent = root;
+      this._track(dorsal);
+
+      // --- Pectoral flippers: angled down-and-back on each side ---
+      for (const side of [-1, 1]) {
+        const flipper = MeshBuilder.CreateSphere(`dolphinFlipper_${d}_${side}`, {
+          diameter: 1,
+          segments: 6,
+        }, this.scene);
+        flipper.scaling = new Vector3(0.45, 0.06, 0.18);
+        flipper.position.x = 0.55;
+        flipper.position.y = -0.22;
+        flipper.position.z = side * 0.30;
+        flipper.rotation.y = side * 0.55;  // swept back
+        flipper.rotation.x = side * 0.55;  // angled down
+        flipper.material = finMat;
+        flipper.parent = root;
+        this._track(flipper);
+      }
+
+      // --- Tail node + horizontal flukes (dolphin flukes are horizontal!) ---
+      const tailNode = new TransformNode(`dolphinTail_${d}`, this.scene);
+      tailNode.position.x = -1.95;
+      tailNode.parent = root;
+      for (const side of [-1, 1]) {
+        const fluke = MeshBuilder.CreateSphere(`dolphinFluke_${d}_${side}`, {
+          diameter: 1,
+          segments: 6,
+        }, this.scene);
+        fluke.scaling = new Vector3(0.38, 0.05, 0.22);
+        fluke.position.x = -0.14;
+        fluke.position.z = side * 0.20;
+        fluke.rotation.y = -side * 0.55;   // splayed back in a horizontal V
+        fluke.material = finMat;
+        fluke.parent = tailNode;
+        this._track(fluke);
+      }
+
+      // --- Eyes: small dark spheres behind the beak ---
+      for (const side of [-1, 1]) {
+        const eye = MeshBuilder.CreateSphere(`dolphinEye_${d}_${side}`, {
+          diameter: 0.07,
+          segments: 6,
+        }, this.scene);
+        eye.position.x = 1.08;
+        eye.position.y = 0.02;
+        eye.position.z = side * 0.23;
+        eye.material = darkMat;
+        eye.parent = root;
+        this._track(eye);
+      }
+
+      // --- Blowhole on top of the head ---
+      const blowhole = MeshBuilder.CreateSphere(`dolphinBlowhole_${d}`, {
+        diameter: 0.06,
+        segments: 6,
+      }, this.scene);
+      blowhole.position.x = 0.85;
+      blowhole.position.y = 0.30;
+      blowhole.material = darkMat;
+      blowhole.parent = root;
+      this._track(blowhole);
+
+      // --- Splash ring for breach re-entry (world space, sits at surface) ---
+      const splashMat = new StandardMaterial(`dolphinSplash_${d}`, this.scene);
+      splashMat.diffuseColor = new Color3(0.95, 0.98, 1.0);
+      splashMat.emissiveColor = new Color3(0.55, 0.62, 0.68);
+      splashMat.alpha = 0.6;
+      const splash = MeshBuilder.CreateTorus(`dolphinSplash_${d}`, {
+        diameter: 1.6,
+        thickness: 0.14,
+        tessellation: 20,
+      }, this.scene);
+      splash.scaling = new Vector3(1, 0.25, 1);
+      splash.material = splashMat;
+      splash.isVisible = false;
+      this._track(splash);
 
       const dirX  = Math.random() < 0.5 ? 1 : -1;
       root.rotation.y = dirX > 0 ? 0 : Math.PI;
 
       this._dolphins.push({
         root,
+        tailNode,
+        splash,
+        splashMat,
+        splashT: -1,            // -1 = inactive, else seconds since re-entry
         dirX,
         speed: this._rand(4.5, 7.0),
         swimPhase: this._rand(0, Math.PI * 2),
@@ -188,6 +316,8 @@ export class OceanLife {
         breachDuration: 2.2,
         breachStartX: 0,
         breachStartZ: 0,
+        hopTimer: this._rand(4, 7), // seconds until next porpoising hop
+        hopU: -1,               // -1 = not hopping, else 0..1 over 1s
       });
     }
   }
@@ -244,10 +374,31 @@ export class OceanLife {
         dp.breachTimer -= dt;
         dp.swimPhase += dt;
 
-        // Gentle horizontal swim
+        // Porpoising: shallow mini-surface-hops between big breaches
+        let hopY = 0;
+        let hopPitch = 0;
+        if (dp.hopU >= 0) {
+          dp.hopU += dt; // 1-second hop
+          if (dp.hopU >= 1.0) {
+            dp.hopU = -1;
+            dp.hopTimer = this._rand(4, 7);
+          } else {
+            hopY = Math.sin(Math.PI * dp.hopU) * 0.8;
+            hopPitch = Math.cos(Math.PI * dp.hopU) * 0.20; // nose up, then down
+          }
+        } else {
+          dp.hopTimer -= dt;
+          if (dp.hopTimer <= 0) dp.hopU = 0;
+        }
+
+        // Gentle horizontal swim with subtle body undulation
         dp.root.position.x += dp.dirX * dp.speed * dt;
-        dp.root.position.y = -1.0 + Math.sin(dp.swimPhase * 1.4) * 0.20;
-        dp.root.rotation.z = Math.sin(dp.swimPhase * 1.4) * 0.08; // body pitch
+        dp.root.position.y = -1.0 + Math.sin(dp.swimPhase * 1.4) * 0.20 + hopY;
+        dp.root.rotation.z =
+          Math.sin(dp.swimPhase * 6 + 0.5) * 0.06 + hopPitch; // pitch undulation
+
+        // Tail pump: vertical fluke strokes (dolphins swim up-and-down)
+        dp.tailNode.rotation.z = Math.sin(dp.swimPhase * 6) * 0.25;
 
         // Wrap X
         if (dp.dirX > 0 && dp.root.position.x > OCEAN_MAX_X + 5) {
@@ -264,6 +415,7 @@ export class OceanLife {
         if (dp.breachTimer <= 0) {
           dp.state = 'breaching';
           dp.breachU = 0;
+          dp.hopU = -1;
           dp.breachStartX = dp.root.position.x;
           dp.breachStartZ = dp.root.position.z;
         }
@@ -276,21 +428,46 @@ export class OceanLife {
           dp.state = 'swimming';
           dp.swimPhase = 0;
           dp.breachTimer = this._rand(10, 22);
+          dp.hopTimer = this._rand(4, 7);
           dp.root.position.y = -1.0;
           dp.root.rotation.z = 0;
           dp.root.rotation.x = 0;
+          dp.tailNode.rotation.z = 0;
+          // Splash ring at the re-entry point on the water surface
+          dp.splash.position.set(dp.root.position.x, -0.3, dp.root.position.z);
+          dp.splash.scaling.set(1, 0.25, 1);
+          dp.splashMat.alpha = 0.6;
+          dp.splash.isVisible = true;
+          dp.splashT = 0;
+        } else {
+          const u = dp.breachU;
+          const arcY = 5.0 * Math.sin(Math.PI * u);
+          dp.root.position.y = arcY;
+
+          // Advance horizontally during breach
+          dp.root.position.x += dp.dirX * dp.speed * 0.7 * dt;
+
+          // Pitch along the arc: nose up (+0.7) on the way up, rotating
+          // through to nose down (-0.9) on re-entry (here +z = nose up).
+          dp.root.rotation.z = 0.7 - u * 1.6;
+
+          // Strong tail strokes powering the leap
+          dp.tailNode.rotation.z = Math.sin(u * Math.PI * 6) * 0.35;
         }
+      }
 
-        const u = dp.breachU;
-        const arcY = 5.0 * Math.sin(Math.PI * u);
-        dp.root.position.y = arcY;
-
-        // Advance horizontally during breach
-        dp.root.position.x += dp.dirX * dp.speed * 0.7 * dt;
-
-        // Pitch nose up on ascent, down on descent
-        const pitchAngle = (0.5 - u) * Math.PI * 0.55; // +up, -down
-        dp.root.rotation.z = pitchAngle;
+      // Splash ring fade-out over 0.5s after re-entry
+      if (dp.splashT >= 0) {
+        dp.splashT += dt;
+        const k = dp.splashT / 0.5;
+        if (k >= 1) {
+          dp.splash.isVisible = false;
+          dp.splashT = -1;
+        } else {
+          const s = 1 + k * 1.6;
+          dp.splash.scaling.set(s, 0.25, s);
+          dp.splashMat.alpha = 0.6 * (1 - k);
+        }
       }
     }
   }

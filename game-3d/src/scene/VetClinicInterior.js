@@ -37,6 +37,9 @@ export class VetClinicInterior {
     this._dog = null;
     this._onExitCallback = null;
     this._exitObserver = null;
+    // Interactive stations (positions set during enter() build)
+    this._scalePos = null;
+    this._treatJarPos = null;
   }
 
   // Enter the interior. Hides the outdoor world, builds the room, moves the
@@ -87,6 +90,18 @@ export class VetClinicInterior {
   dispose() {
     this.exit();
   }
+
+  // ── Interactive-station proximity queries ──────────────────────────────
+  _dogWithin(pos, radius = 2.5) {
+    if (!pos || !this._dog) return false;
+    const dp = this._dog.position;
+    const dx = dp.x - pos.x;
+    const dz = dp.z - pos.z;
+    return (dx * dx + dz * dz) < (radius * radius);
+  }
+
+  isNearScale() { return this._dogWithin(this._scalePos); }
+  isNearTreatJar() { return this._dogWithin(this._treatJarPos); }
 
   // ── Private helpers ────────────────────────────────────────────────────
 
@@ -207,6 +222,7 @@ export class VetClinicInterior {
     this._buildMedicineCabinet();
     this._buildDogPoster();
     this._buildScale();
+    this._buildTreatJar();
     this._buildPottedPlant();
   }
 
@@ -528,35 +544,94 @@ export class VetClinicInterior {
     label.material = this._mat('vet_posterLabelMat', [0.85, 0.40, 0.35]);
   }
 
-  // ── Weigh scale / platform near the door ─────────────────────────────
+  // ── Weighing scale station near the door — interactive ───────────────
   _buildScale() {
     const scaleX = -3;
     const scaleZ = -8;
+    this._scalePos = new Vector3(scaleX, 0, scaleZ);
 
-    // Silver weigh platform
-    const platform = this._tag(MeshBuilder.CreateBox('vet_scale', {
-      width: 2, depth: 2, height: 0.08,
+    // Low flat dark-gray cylinder platform
+    const platform = this._tag(MeshBuilder.CreateCylinder('vet_scale', {
+      height: 0.18, diameter: 1.4, tessellation: 24,
     }, this.scene));
-    platform.position = new Vector3(scaleX, 0.04, scaleZ);
-    const platMat = this._mat('vet_scaleMat', [0.75, 0.75, 0.78]);
-    platMat.specularColor = new Color3(0.4, 0.4, 0.45);
+    platform.position = new Vector3(scaleX, 0.09, scaleZ);
+    const platMat = this._mat('vet_scaleMat', [0.30, 0.30, 0.33]);
+    platMat.specularColor = new Color3(0.35, 0.35, 0.40);
     platform.material = platMat;
+    platform.isPickable = false;
 
-    // Digital display housing — small dark box at one end
+    // Small white display housing just behind the platform
     const displayBox = this._tag(MeshBuilder.CreateBox('vet_scaleDisplay', {
-      width: 0.7, depth: 0.4, height: 0.25,
+      width: 0.6, depth: 0.35, height: 0.45,
     }, this.scene));
-    displayBox.position = new Vector3(scaleX, 0.2, scaleZ - 0.8);
-    displayBox.material = this._mat('vet_scaleDisplayMat', [0.22, 0.22, 0.24]);
+    displayBox.position = new Vector3(scaleX, 0.23, scaleZ - 1.0);
+    displayBox.material = this._mat('vet_scaleDisplayMat', [0.95, 0.95, 0.97]);
+    displayBox.isPickable = false;
 
-    // Bright display panel on the front face of the housing
+    // Light-blue emissive screen on the front face of the housing
     const panel = this._tag(MeshBuilder.CreateBox('vet_scalePanel', {
-      width: 0.55, depth: 0.06, height: 0.15,
+      width: 0.45, depth: 0.04, height: 0.22,
     }, this.scene));
-    panel.position = new Vector3(scaleX, 0.21, scaleZ - 1.02);
-    const panelMat = this._mat('vet_scalePanelMat', [0.45, 0.90, 0.55]);
-    panelMat.emissiveColor = new Color3(0.2, 0.6, 0.3);
+    panel.position = new Vector3(scaleX, 0.28, scaleZ - 1.19);
+    const panelMat = this._mat('vet_scalePanelMat', [0.55, 0.80, 0.98]);
+    panelMat.emissiveColor = new Color3(0.30, 0.50, 0.70);
     panel.material = panelMat;
+    panel.isPickable = false;
+  }
+
+  // ── Treat jar counter along the north wall (west side) — interactive ──
+  _buildTreatJar() {
+    const jarX = -8;
+    const jarZ = ROOM_HALF - 0.8; // 13.2 — flush against the north wall
+    this._treatJarPos = new Vector3(jarX, 0, jarZ);
+
+    // Small counter box
+    const counter = this._tag(MeshBuilder.CreateBox('vet_treatCounter', {
+      width: 2.5, depth: 1.2, height: 1.0,
+    }, this.scene));
+    counter.position = new Vector3(jarX, 0.5, jarZ);
+    counter.material = this._mat('vet_treatCounterMat', [0.85, 0.80, 0.72]);
+    counter.isPickable = false;
+
+    // Big glass jar on the counter
+    const jar = this._tag(MeshBuilder.CreateCylinder('vet_treatJar', {
+      height: 0.9, diameter: 0.7, tessellation: 16,
+    }, this.scene));
+    jar.position = new Vector3(jarX, 1.45, jarZ);
+    const jarMat = this._mat('vet_treatJarMat', [0.80, 0.90, 0.95]);
+    jarMat.alpha = 0.4;
+    jar.material = jarMat;
+    jar.isPickable = false;
+
+    // Jar lid
+    const lid = this._tag(MeshBuilder.CreateCylinder('vet_treatJarLid', {
+      height: 0.1, diameter: 0.75, tessellation: 16,
+    }, this.scene));
+    lid.position = new Vector3(jarX, 1.95, jarZ);
+    lid.material = this._mat('vet_treatJarLidMat', [0.70, 0.55, 0.30]);
+    lid.isPickable = false;
+
+    // Bone-colored treats inside the jar
+    const treatOffsets = [
+      [0, 1.12, 0], [-0.15, 1.18, 0.1], [0.15, 1.20, -0.1],
+      [0.05, 1.34, 0.12], [-0.12, 1.36, -0.08],
+    ];
+    treatOffsets.forEach(([ox, ty, oz], i) => {
+      const treat = this._tag(MeshBuilder.CreateSphere(`vet_treat_${i}`, {
+        diameter: 0.18, segments: 7,
+      }, this.scene));
+      treat.position = new Vector3(jarX + ox, ty, jarZ + oz);
+      treat.material = this._mat(`vet_treatMat_${i}`, [0.95, 0.90, 0.72]);
+      treat.isPickable = false;
+    });
+
+    // Label box on the front of the counter
+    const label = this._tag(MeshBuilder.CreateBox('vet_treatLabel', {
+      width: 1.4, depth: 0.05, height: 0.4,
+    }, this.scene));
+    label.position = new Vector3(jarX, 0.65, jarZ - 0.63);
+    label.material = this._mat('vet_treatLabelMat', [0.92, 0.55, 0.45]);
+    label.isPickable = false;
   }
 
   // ── Potted plant in the north-east corner ─────────────────────────────

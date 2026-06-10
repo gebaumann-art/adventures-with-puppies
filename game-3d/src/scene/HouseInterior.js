@@ -36,6 +36,14 @@ export class HouseInterior {
     this._origLights = [];        // outdoor lights we dimmed, for restore
     this._addedLights = [];       // interior lights we created
     this._nearExit = false;
+    // Interactive stations (positions set in _buildFurniture)
+    this._bedPos = null;
+    this._bowlsPos = null;
+    this._toysPos = null;
+    this._toyBall = null;
+    this._toyBallHome = null;
+    this._toyFxActive = false;
+    this._fxObservers = [];       // active effect observers, removed on destroy
   }
 
   // Build the interior. Hides the outdoor world first, then constructs the
@@ -78,9 +86,112 @@ export class HouseInterior {
 
   isNearExit() { return this._nearExit; }
 
+  // ── Interactive-station proximity queries ───────────────────────────
+  _dogWithin(pos, radius = 2.5) {
+    if (!pos || !this.dog) return false;
+    const dp = this.dog.position;
+    const dx = dp.x - pos.x;
+    const dz = dp.z - pos.z;
+    return (dx * dx + dz * dz) < (radius * radius);
+  }
+
+  isNearBed() { return this._dogWithin(this._bedPos); }
+  isNearBowls() { return this._dogWithin(this._bowlsPos); }
+  isNearToys() { return this._dogWithin(this._toysPos); }
+
+  // Nap effect — three floating "Z" planes rise above the bed and fade out
+  // over ~2 seconds, then dispose themselves.
+  playNapEffect() {
+    if (!this._bedPos) return;
+    const zs = [];
+    for (let i = 0; i < 3; i++) {
+      const tex = new DynamicTexture(`hi_zTex_${i}`, { width: 128, height: 128 }, this.scene, false);
+      tex.hasAlpha = true;
+      const ctx = tex.getContext();
+      ctx.clearRect(0, 0, 128, 128);
+      ctx.fillStyle = '#4a6fd4';
+      ctx.font = 'bold 96px Nunito, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Z', 64, 68);
+      tex.update();
+
+      const plane = this._tag(MeshBuilder.CreatePlane(`hi_zPlane_${i}`, {
+        size: 0.45 + i * 0.15,
+      }, this.scene));
+      plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      plane.isPickable = false;
+      const startY = 1.0 + i * 0.4;
+      plane.position = new Vector3(
+        this._bedPos.x + (i - 1) * 0.25,
+        startY,
+        this._bedPos.z,
+      );
+      const mat = this._mat(`hi_zPlaneMat_${i}`, [1, 1, 1]);
+      mat.diffuseTexture = tex;
+      mat.useAlphaFromDiffuseTexture = true;
+      mat.emissiveColor = new Color3(0.8, 0.85, 1.0);
+      mat.backFaceCulling = false;
+      plane.material = mat;
+      zs.push({ plane, mat, tex, startY });
+    }
+
+    let elapsed = 0;
+    const obs = this.scene.onBeforeRenderObservable.add(() => {
+      elapsed += this.scene.getEngine().getDeltaTime() / 1000;
+      const t = Math.min(elapsed / 2.0, 1);
+      zs.forEach((z) => {
+        z.plane.position.y = z.startY + t * 1.3;
+        z.mat.alpha = 1 - t;
+      });
+      if (t >= 1) {
+        this.scene.onBeforeRenderObservable.remove(obs);
+        this._fxObservers = this._fxObservers.filter((o) => o !== obs);
+        zs.forEach((z) => {
+          try { z.tex.dispose(); z.mat.dispose(); z.plane.dispose(); } catch (_) {}
+        });
+      }
+    });
+    this._fxObservers.push(obs);
+  }
+
+  // Toy effect — the bright basket ball hops in a small arc 3 times over
+  // ~1.2 seconds, then settles back where it started.
+  playToyEffect() {
+    const ball = this._toyBall;
+    if (!ball || ball.isDisposed() || this._toyFxActive) return;
+    this._toyFxActive = true;
+    const home = this._toyBallHome;
+
+    let elapsed = 0;
+    const obs = this.scene.onBeforeRenderObservable.add(() => {
+      elapsed += this.scene.getEngine().getDeltaTime() / 1000;
+      const t = Math.min(elapsed / 1.2, 1);
+      if (ball.isDisposed() || t >= 1) {
+        if (!ball.isDisposed()) ball.position.copyFrom(home);
+        this.scene.onBeforeRenderObservable.remove(obs);
+        this._fxObservers = this._fxObservers.filter((o) => o !== obs);
+        this._toyFxActive = false;
+        return;
+      }
+      // 3 hops with gently decaying height, drifting in a small side arc
+      const amp = 0.5 * (1 - t * 0.45);
+      ball.position.y = home.y + Math.abs(Math.sin(t * Math.PI * 3)) * amp;
+      ball.position.x = home.x + Math.sin(t * Math.PI) * 0.3;
+      ball.position.z = home.z + Math.sin(t * Math.PI) * 0.15;
+    });
+    this._fxObservers.push(obs);
+  }
+
   // Restore the world — re-enable outdoor meshes, restore lighting, dispose
   // everything we built.
   destroy() {
+    this._fxObservers.forEach((o) => {
+      try { this.scene.onBeforeRenderObservable.remove(o); } catch (_) {}
+    });
+    this._fxObservers = [];
+    this._toyFxActive = false;
+    this._toyBall = null;
     this._meshes.forEach((m) => { try { m.dispose(); } catch (_) {} });
     this._meshes = [];
     this._addedLights.forEach((l) => { try { l.dispose(); } catch (_) {} });
@@ -242,6 +353,7 @@ export class HouseInterior {
     this._buildDogBed();
     this._buildExtraDogBeds();
     this._buildBowls();
+    this._buildToyBasket();
     this._buildToyChest();
     this._buildScatteredToys();
     this._buildPhotoFrame();
@@ -425,70 +537,152 @@ export class HouseInterior {
     screen.material = screenMat;
   }
 
-  // Cute red cushion + pillow in the NW corner.
+  // Plush oval dog bed in the NW corner — interactive nap station.
   _buildDogBed() {
-    const baseX = -ROOM_HALF + 2.2;
-    const baseZ = ROOM_HALF - 2.2;
-    const cushion = this._tag(MeshBuilder.CreateBox('hi_dogBed', {
-      width: 2.4, depth: 1.8, height: 0.35,
-    }, this.scene));
-    cushion.position = new Vector3(baseX, 0.18, baseZ);
-    cushion.material = this._mat('hi_dogBedMat', [0.85, 0.25, 0.30]);
+    const baseX = -ROOM_HALF + 3;   // -13
+    const baseZ = ROOM_HALF - 3;    // 13
+    this._bedPos = new Vector3(baseX, 0, baseZ);
 
+    // Flattened cylinder base — warm red-brown plush cushion
+    const base = this._tag(MeshBuilder.CreateCylinder('hi_dogBed', {
+      height: 0.3, diameter: 2.2, tessellation: 24,
+    }, this.scene));
+    base.position = new Vector3(baseX, 0.15, baseZ);
+    base.material = this._mat('hi_dogBedMat', [0.72, 0.38, 0.28]);
+    base.isPickable = false;
+
+    // Torus rim — slightly larger, darker bolster around the edge
+    const rim = this._tag(MeshBuilder.CreateTorus('hi_dogBedRim', {
+      diameter: 2.3, thickness: 0.45, tessellation: 24,
+    }, this.scene));
+    rim.position = new Vector3(baseX, 0.32, baseZ);
+    rim.material = this._mat('hi_dogBedRimMat', [0.55, 0.27, 0.20]);
+    rim.isPickable = false;
+
+    // Small white pillow
     const pillow = this._tag(MeshBuilder.CreateBox('hi_dogBedPillow', {
-      width: 1.4, depth: 0.7, height: 0.18,
+      width: 0.9, depth: 0.6, height: 0.18,
     }, this.scene));
-    pillow.position = new Vector3(baseX, 0.45, baseZ + 0.5);
-    pillow.material = this._mat('hi_dogBedPillowMat', [1.0, 0.85, 0.85]);
-
-    // A little bone toy on the bed
-    const bone = this._tag(MeshBuilder.CreateCylinder('hi_dogBedBone', {
-      height: 0.4, diameter: 0.12,
-    }, this.scene));
-    bone.position = new Vector3(baseX + 0.6, 0.42, baseZ - 0.2);
-    bone.rotation.z = Math.PI / 2;
-    bone.rotation.y = 0.3;
-    bone.material = this._mat('hi_dogBedBoneMat', [0.98, 0.95, 0.78]);
+    pillow.position = new Vector3(baseX, 0.4, baseZ + 0.35);
+    pillow.material = this._mat('hi_dogBedPillowMat', [0.98, 0.98, 0.98]);
+    pillow.isPickable = false;
   }
 
-  // Food bowl (silver) + water bowl (blue) on the floor near the bed.
+  // Food bowl (red, with kibble) + water bowl (blue, with water) side by side
+  // in the kitchen-ish area along the north wall — interactive feeding station.
   _buildBowls() {
+    const foodX = -ROOM_HALF + 6.4;  // -9.6
+    const waterX = -ROOM_HALF + 7.2; // -8.8
+    const bowlZ = ROOM_HALF - 2.5;   // 13.5
+    this._bowlsPos = new Vector3((foodX + waterX) / 2, 0, bowlZ); // (-9.2, 0, 13.5)
+
+    // Red food bowl
     const food = this._tag(MeshBuilder.CreateCylinder('hi_foodBowl', {
-      height: 0.25, diameterTop: 0.9, diameterBottom: 0.7,
+      height: 0.25, diameter: 0.6, tessellation: 16,
     }, this.scene));
-    food.position = new Vector3(-ROOM_HALF + 5.5, 0.13, ROOM_HALF - 2.5);
-    const foodMat = this._mat('hi_foodBowlMat', [0.78, 0.78, 0.82]);
-    foodMat.specularColor = new Color3(0.6, 0.6, 0.7);
-    food.material = foodMat;
+    food.position = new Vector3(foodX, 0.125, bowlZ);
+    food.material = this._mat('hi_foodBowlMat', [0.85, 0.25, 0.25]);
+    food.isPickable = false;
 
-    // Kibble (a few brown spheres in the bowl)
-    for (let i = 0; i < 5; i++) {
-      const kibble = this._tag(MeshBuilder.CreateSphere(`hi_kibble_${i}`, {
-        diameter: 0.16, segments: 6,
-      }, this.scene));
-      kibble.position = new Vector3(
-        -ROOM_HALF + 5.5 + (Math.random() - 0.5) * 0.5,
-        0.27,
-        ROOM_HALF - 2.5 + (Math.random() - 0.5) * 0.5,
-      );
-      kibble.material = this._mat(`hi_kibbleMat_${i}`, [0.55, 0.35, 0.18]);
-    }
+    // Brown "kibble" mound — flattened sphere sitting in the bowl
+    const kibble = this._tag(MeshBuilder.CreateSphere('hi_kibble', {
+      diameter: 0.45, segments: 8,
+    }, this.scene));
+    kibble.scaling.y = 0.4;
+    kibble.position = new Vector3(foodX, 0.26, bowlZ);
+    kibble.material = this._mat('hi_kibbleMat', [0.55, 0.35, 0.18]);
+    kibble.isPickable = false;
 
+    // Blue water bowl
     const water = this._tag(MeshBuilder.CreateCylinder('hi_waterBowl', {
-      height: 0.22, diameterTop: 0.75, diameterBottom: 0.6,
+      height: 0.25, diameter: 0.6, tessellation: 16,
     }, this.scene));
-    water.position = new Vector3(-ROOM_HALF + 6.7, 0.12, ROOM_HALF - 2.5);
+    water.position = new Vector3(waterX, 0.125, bowlZ);
     water.material = this._mat('hi_waterBowlMat', [0.30, 0.55, 0.90]);
+    water.isPickable = false;
 
-    // Water surface (a small blue disc on top)
+    // Light-blue water surface disc on top
     const waterTop = this._tag(MeshBuilder.CreateDisc('hi_waterTop', {
-      radius: 0.32, tessellation: 16,
+      radius: 0.24, tessellation: 16,
     }, this.scene));
     waterTop.rotation.x = Math.PI / 2;
-    waterTop.position = new Vector3(-ROOM_HALF + 6.7, 0.24, ROOM_HALF - 2.5);
+    waterTop.position = new Vector3(waterX, 0.26, bowlZ);
     const waterTopMat = this._mat('hi_waterTopMat', [0.55, 0.78, 0.98]);
     waterTopMat.alpha = 0.7;
     waterTop.material = waterTopMat;
+    waterTop.isPickable = false;
+  }
+
+  // Woven toy basket in the living area with toys poking out — interactive
+  // play station. The bright ball is kept as this._toyBall for playToyEffect().
+  _buildToyBasket() {
+    const baseX = 5;
+    const baseZ = 6;
+    this._toysPos = new Vector3(baseX, 0, baseZ);
+
+    // Tan woven basket
+    const basket = this._tag(MeshBuilder.CreateCylinder('hi_toyBasket', {
+      height: 0.6, diameterTop: 1.5, diameterBottom: 1.2, tessellation: 16,
+    }, this.scene));
+    basket.position = new Vector3(baseX, 0.3, baseZ);
+    basket.material = this._mat('hi_toyBasketMat', [0.80, 0.65, 0.42]);
+    basket.isPickable = false;
+
+    // Darker rim band to suggest weave
+    const rim = this._tag(MeshBuilder.CreateTorus('hi_toyBasketRim', {
+      diameter: 1.5, thickness: 0.12, tessellation: 16,
+    }, this.scene));
+    rim.position = new Vector3(baseX, 0.6, baseZ);
+    rim.material = this._mat('hi_toyBasketRimMat', [0.62, 0.48, 0.28]);
+    rim.isPickable = false;
+
+    // Bright ball poking out — animated by playToyEffect()
+    const ball = this._tag(MeshBuilder.CreateSphere('hi_basketBall', {
+      diameter: 0.4, segments: 10,
+    }, this.scene));
+    ball.position = new Vector3(baseX - 0.32, 0.72, baseZ + 0.1);
+    ball.material = this._mat('hi_basketBallMat', [1.0, 0.45, 0.25]);
+    ball.isPickable = false;
+    this._toyBall = ball;
+    this._toyBallHome = ball.position.clone();
+
+    // Rope toy — thin bent cylinder (two tilted segments)
+    const rope1 = this._tag(MeshBuilder.CreateCylinder('hi_basketRope1', {
+      height: 0.6, diameter: 0.1, tessellation: 8,
+    }, this.scene));
+    rope1.position = new Vector3(baseX + 0.25, 0.78, baseZ - 0.15);
+    rope1.rotation.z = 0.5;
+    rope1.material = this._mat('hi_basketRope1Mat', [0.85, 0.75, 0.55]);
+    rope1.isPickable = false;
+    const rope2 = this._tag(MeshBuilder.CreateCylinder('hi_basketRope2', {
+      height: 0.45, diameter: 0.1, tessellation: 8,
+    }, this.scene));
+    rope2.position = new Vector3(baseX + 0.45, 0.95, baseZ - 0.15);
+    rope2.rotation.z = -0.4;
+    rope2.material = this._mat('hi_basketRope2Mat', [0.95, 0.55, 0.55]);
+    rope2.isPickable = false;
+
+    // Bone toy — cylinder shaft with 2 sphere knobs
+    const boneShaft = this._tag(MeshBuilder.CreateCylinder('hi_basketBone', {
+      height: 0.5, diameter: 0.12, tessellation: 8,
+    }, this.scene));
+    boneShaft.position = new Vector3(baseX, 0.75, baseZ - 0.35);
+    boneShaft.rotation.z = Math.PI / 2;
+    boneShaft.rotation.y = 0.4;
+    boneShaft.material = this._mat('hi_basketBoneMat', [0.98, 0.95, 0.78]);
+    boneShaft.isPickable = false;
+    [-1, 1].forEach((dir, i) => {
+      const knob = this._tag(MeshBuilder.CreateSphere(`hi_basketBoneKnob_${i}`, {
+        diameter: 0.18, segments: 8,
+      }, this.scene));
+      knob.position = new Vector3(
+        baseX + Math.cos(0.4) * 0.25 * dir,
+        0.75,
+        baseZ - 0.35 - Math.sin(0.4) * 0.25 * dir,
+      );
+      knob.material = this._mat(`hi_basketBoneKnobMat_${i}`, [0.98, 0.95, 0.78]);
+      knob.isPickable = false;
+    });
   }
 
   // Wooden toy chest with the lid slightly ajar. Shows accessory count on the

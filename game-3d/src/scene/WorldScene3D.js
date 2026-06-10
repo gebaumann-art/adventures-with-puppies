@@ -14,6 +14,7 @@ import {
   DynamicTexture,
   TransformNode,
   Quaternion,
+  Ray,
 } from '@babylonjs/core';
 import { DogCharacter } from './DogCharacter.js';
 import { WorldBuilder, ZONES_3D, WORLD_SIZE } from './WorldBuilder.js';
@@ -288,6 +289,12 @@ export class WorldScene3D {
     this.dogShowArena.build();
     this.dogShowArena.hide();
 
+    // ── Building meshes that should turn see-through when they block
+    //    the camera's view of the dog ────────────────────────────────
+    this._occluders = this.scene.meshes.filter((m) =>
+      /_story\d|_roof\b|_roof$|_chimney|_porchRoof|_bay\b|_eaveTrim|^idp_(wall|roof|trim)|^shop_\d|^shopTrim_|^awning_|^academy_(body|tower)|^lib_|^vet_|^garden_shed/i
+        .test(m.name));
+
     // ── Outdoor dog park balls (near x=-70, z=20) ────────────────
     this._buildOutdoorBalls();
 
@@ -479,16 +486,25 @@ export class WorldScene3D {
 
     // ── Smooth camera zoom (dog park puppy-cam, agility run cam) ──
     // Lerps toward the target then releases control back to the player.
+    // Targets are clamped to the camera's own limits — otherwise the lerp
+    // chases an unreachable value forever and the camera gets stuck.
     if (this._camAnim) {
       const a = this._camAnim;
+      const tr = Math.max(this.camera.lowerRadiusLimit ?? a.radius,
+                 Math.min(this.camera.upperRadiusLimit ?? a.radius, a.radius));
+      const tb = Math.max(this.camera.lowerBetaLimit ?? a.beta,
+                 Math.min(this.camera.upperBetaLimit ?? a.beta, a.beta));
       const k = Math.min(1, dt * 3);
-      this.camera.radius += (a.radius - this.camera.radius) * k;
-      this.camera.beta   += (a.beta   - this.camera.beta)   * k;
-      if (Math.abs(a.radius - this.camera.radius) < 0.3 &&
-          Math.abs(a.beta   - this.camera.beta)   < 0.02) {
+      this.camera.radius += (tr - this.camera.radius) * k;
+      this.camera.beta   += (tb - this.camera.beta)   * k;
+      if (Math.abs(tr - this.camera.radius) < 0.3 &&
+          Math.abs(tb - this.camera.beta)   < 0.02) {
         this._camAnim = null;
       }
     }
+
+    // ── Fade buildings that block the view of the dog ─────────────
+    if (!this.inInterior) this._updateBuildingFade();
 
     // ── Space bar hop (edge-triggered) ────────────────────────────
     if (!this.modalOpen) {
@@ -557,6 +573,66 @@ export class WorldScene3D {
 
     // Agility checkpoint detection when course is active.
     if (this._agilityActive && this._agilityCheckpoints && this._agilityUI) {
+      // ── Abandoning the course (wandering far away) cancels the run and
+      //    restores the camera — otherwise the puppy-cam stays stuck.
+      {
+        const adx = this.dog.position.x - AGILITY_COURSE_CENTER.x;
+        const adz = this.dog.position.z - AGILITY_COURSE_CENTER.z;
+        if (adx * adx + adz * adz > 38 * 38) {
+          this._agilityActive = false;
+          if (this._agilityUI) {
+            this._agilityUI.stopTimer();
+            this._agilityUI.hide();
+            this._agilityUI = null;
+          }
+          this.agilityCourse.hide();
+          this._restoreAgilityCam();
+          showZoneLabel('🐾 Agility run cancelled — come back any time!');
+          return;
+        }
+      }
+
+      // ── Bonus obstacles ──────────────────────────────────────────
+      // Weave poles (6 poles at x=95..90, z=54): brush past all six for a
+      // -3s bonus. Tunnel (x≈88, z 62..67): pass through for cheers.
+      // Tire jump (110, 53): hop near it for a -2s bonus.
+      if (!this._agilityWeaveDone && this._agilityWeaveHits) {
+        for (let p = 0; p < 6; p++) {
+          if (this._agilityWeaveHits.has(p)) continue;
+          const px = 95 - p, pz = 54;
+          const dx = px - this.dog.position.x;
+          const dz = pz - this.dog.position.z;
+          if (dx * dx + dz * dz < 1.2 * 1.2) {
+            this._agilityWeaveHits.add(p);
+            if (this.particles) this.particles.bonePop(this.dog.position);
+          }
+        }
+        if (this._agilityWeaveHits.size === 6) {
+          this._agilityWeaveDone = true;
+          this._agilityPenalty -= 3;
+          showZoneLabel('🌀 Perfect weave! -3 seconds!');
+          if (this.particles) this.particles.achievementPop(this.dog.position);
+        }
+      }
+      if (!this._agilityTunnelDone) {
+        const p = this.dog.position;
+        if (p.x > 86.5 && p.x < 89.5 && p.z > 62 && p.z < 67) {
+          this._agilityTunnelDone = true;
+          showZoneLabel('🎉 Through the tunnel!');
+          if (this.particles) this.particles.coinShower(this.dog.position);
+        }
+      }
+      if (!this._agilityTireDone && this.dog._hopActive) {
+        const dx = 110 - this.dog.position.x;
+        const dz = 53  - this.dog.position.z;
+        if (dx * dx + dz * dz < 2.5 * 2.5) {
+          this._agilityTireDone = true;
+          this._agilityPenalty -= 2;
+          showZoneLabel('🛞 Tire jump! -2 seconds!');
+          if (this.particles) this.particles.achievementPop(this.dog.position);
+        }
+      }
+
       // ── Hurdle jumping — hop with SPACE to clear; walking through knocks
       //    the bar off and adds a time penalty.
       if (this._agilityHurdles) {
@@ -606,14 +682,17 @@ export class WorldScene3D {
     // ── House interior ───────────────────────────────────────────────
     if (this.houseInterior) {
       this.houseInterior.update(_dt);
-      if (this.houseInterior.isNearExit()) {
-        this.nearestInteractable = { kind: 'exit_house' };
-        this.nearestInteractableKind = 'exit_house';
-        showInteractHint('🏠 Press E to go outside');
+      const hi = this.houseInterior;
+      if (hi.isNearExit()) {
+        this._setInteriorHint('exit_house', '🏠 Press E to go outside');
+      } else if (hi.isNearBed && hi.isNearBed()) {
+        this._setInteriorHint('house_bed', '🛏️ Press E to take a nap!');
+      } else if (hi.isNearBowls && hi.isNearBowls()) {
+        this._setInteriorHint('house_bowls', '🍖 Press E to eat & drink!');
+      } else if (hi.isNearToys && hi.isNearToys()) {
+        this._setInteriorHint('house_toys', '🧸 Press E to play with toys!');
       } else {
-        this.nearestInteractable = null;
-        this.nearestInteractableKind = null;
-        hideInteractHint();
+        this._setInteriorHint(null);
       }
       return;
     }
@@ -649,18 +728,32 @@ export class WorldScene3D {
     // Exit is auto-triggered by VetClinicInterior's onBeforeRenderObservable.
     // Inside the clinic, the exam table at local (0, 0, 2) opens the grooming game.
     if (this.vetInterior) {
+      const vi = this.vetInterior;
       const examX = 0, examZ = 2;
       const dx = this.dog.position.x - examX;
       const dz = this.dog.position.z - examZ;
       if (dx * dx + dz * dz < 4 * 4) {
-        this.nearestInteractable = { kind: 'vet_exam' };
-        this.nearestInteractableKind = 'vet_exam';
-        showInteractHint('🏥 Press E for a check-up!');
+        this._setInteriorHint('vet_exam', '🏥 Press E for a check-up!');
+      } else if (vi.isNearScale && vi.isNearScale()) {
+        this._setInteriorHint('vet_scale', '⚖️ Press E to weigh your puppy!');
+      } else if (vi.isNearTreatJar && vi.isNearTreatJar()) {
+        this._setInteriorHint('vet_treats', '🦴 Press E for a healthy treat!');
       } else {
-        this.nearestInteractable = null;
-        this.nearestInteractableKind = null;
-        hideInteractHint();
+        this._setInteriorHint(null);
       }
+    }
+  }
+
+  // Helper: set/clear the current interior interactable + hint text.
+  _setInteriorHint(kind, hint) {
+    if (kind) {
+      this.nearestInteractable = { kind };
+      this.nearestInteractableKind = kind;
+      showInteractHint(hint);
+    } else {
+      this.nearestInteractable = null;
+      this.nearestInteractableKind = null;
+      hideInteractHint();
     }
   }
 
@@ -806,6 +899,29 @@ export class WorldScene3D {
     this.camera.target.set(dp.x, dp.y + 1.5, dp.z);
   }
 
+  // Buildings between the camera and the dog fade to ~30% visibility so the
+  // player never loses sight of their puppy behind a house.
+  _updateBuildingFade() {
+    if (!this._occluders || !this.camera || !this.dog) return;
+    const camPos = this.camera.globalPosition;
+    const target = this.dog.position.clone();
+    target.y += 1.2;
+    const dir = target.subtract(camPos);
+    const len = dir.length();
+    if (len < 2) return;
+    dir.normalize();
+    // Stop the ray slightly short of the dog so the ground patch under the
+    // dog's feet doesn't count as an occluder.
+    const ray = new Ray(camPos, dir, len - 1.5);
+    for (const m of this._occluders) {
+      if (!m.isEnabled()) continue;
+      const blocked = ray.intersectsBox(m.getBoundingInfo().boundingBox);
+      const goal = blocked ? 0.30 : 1.0;
+      const v = m.visibility + (goal - m.visibility) * 0.18;
+      m.visibility = Math.abs(v - goal) < 0.02 ? goal : v;
+    }
+  }
+
   _updateZoneLabel() {
     const zone = this.worldBuilder.getZoneAt(this.dog.position.x, this.dog.position.z);
     const id = zone ? zone.id : null;
@@ -895,6 +1011,16 @@ export class WorldScene3D {
       this._exitHouse();
     } else if (this.nearestInteractableKind === 'vet_exam') {
       this._openGroomingGame();
+    } else if (this.nearestInteractableKind === 'house_bed') {
+      this._houseNap();
+    } else if (this.nearestInteractableKind === 'house_bowls') {
+      this._feedDog();
+    } else if (this.nearestInteractableKind === 'house_toys') {
+      this._housePlayToys();
+    } else if (this.nearestInteractableKind === 'vet_scale') {
+      this._vetWeighIn();
+    } else if (this.nearestInteractableKind === 'vet_treats') {
+      this._vetTreat();
     } else if (this.nearestInteractableKind === 'exit_dogpark') {
       this._exitIndoorDogPark();
     } else if (this.nearestInteractableKind === 'dogpark_obstacle') {
@@ -1067,9 +1193,16 @@ export class WorldScene3D {
     this._agilityPenalty = 0;
 
     // Swoop the camera down to puppy height for the run.
+    // NOTE: must stay >= camera.lowerRadiusLimit (15) or the zoom never lands.
     this._agilitySavedCam = { radius: this.camera.radius, beta: this.camera.beta };
-    this._camAnim = { radius: 14, beta: 1.22 };
+    this._camAnim = { radius: 16, beta: 1.22 };
     showZoneLabel('🐾 Hop over the jumps with SPACE!');
+
+    // Bonus-obstacle state: weave poles, tunnel, tire jump.
+    this._agilityWeaveHits = new Set();
+    this._agilityWeaveDone = false;
+    this._agilityTunnelDone = false;
+    this._agilityTireDone = false;
 
     const ui = new AgilityUI();
     const checkpoints = this.agilityCourse.getCheckpoints();
@@ -1679,7 +1812,8 @@ export class WorldScene3D {
       const ball = MeshBuilder.CreateSphere(`outdoorBall_${i}`, {
         diameter: 0.55, segments: 10,
       }, this.scene);
-      ball.position = new Vector3(bx, 0.28, bz);
+      // Rest ON the dog park's raised zone patch, not buried inside it.
+      ball.position = new Vector3(bx, this._getGroundY(bx, bz) + 0.28, bz);
       ball.isPickable = false;
       const bMat = new StandardMaterial(`outdoorBallMat_${i}`, this.scene);
       bMat.diffuseColor = colors[i % colors.length];
@@ -1691,8 +1825,8 @@ export class WorldScene3D {
 
   _updateOutdoorBalls(dt) {
     const dp = this.dog.position;
-    const PUSH_RADIUS = 1.4;
-    const PUSH_FORCE  = 10.0;
+    const PUSH_RADIUS = 1.8;   // generous so kicks feel responsive
+    const PUSH_FORCE  = 14.0;
     const FRICTION    = 0.87;
     const MAX_SPEED   = 6.0;
     // Park boundary (roughly)
@@ -1860,6 +1994,47 @@ export class WorldScene3D {
     updateDogHUD(this.gameState);
     this._saveSoon();
     showZoneLabel('🦴 Yum! Treat time! 🐕');
+  }
+
+  // ── House interior stations ─────────────────────────────────────────────
+  _houseNap() {
+    if (this.houseInterior?.playNapEffect) this.houseInterior.playNapEffect();
+    if (this.petCare) this.petCare.onHappened();
+    addXP(this.gameState.currentDog, 3);
+    updateDogHUD(this.gameState);
+    this._saveSoon();
+    showZoneLabel('😴 Zzz... your puppy wakes up feeling great!');
+  }
+
+  _housePlayToys() {
+    if (this.houseInterior?.playToyEffect) this.houseInterior.playToyEffect();
+    if (this.petCare) this.petCare.onHappened();
+    if (this.particles) this.particles.heartBurst(this.dog.position);
+    addXP(this.gameState.currentDog, 4);
+    updateDogHUD(this.gameState);
+    this._saveSoon();
+    showZoneLabel('🧸 So fun! Your puppy loves playtime!');
+  }
+
+  // ── Vet interior stations ───────────────────────────────────────────────
+  _vetWeighIn() {
+    // Playful weigh-in: weight scales with the dog's growth stage.
+    const dog = this.gameState.currentDog || {};
+    const stage = dog.stage || 'puppy';
+    const base = stage === 'adult' ? 18 : stage === 'adolescent' ? 11 : 6;
+    const lbs = base + Math.floor(Math.random() * 3);
+    addXP(this.gameState.currentDog, 2);
+    updateDogHUD(this.gameState);
+    this._saveSoon();
+    showZoneLabel(`⚖️ ${lbs} lbs — a perfectly healthy pup! 🌟`);
+  }
+
+  _vetTreat() {
+    if (this.petCare) this.petCare.onFed();
+    addXP(this.gameState.currentDog, 2);
+    updateDogHUD(this.gameState);
+    this._saveSoon();
+    showZoneLabel('🦴 A healthy treat from the vet! Yum!');
   }
 
   // ── Feed the dog — fills hunger bar instantly ──────────────────────────────
