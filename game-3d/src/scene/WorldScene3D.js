@@ -100,17 +100,17 @@ const SPECIAL_ZONES_3D = [
   { id: 'npc',           x: 30,  z: -115,color: [1.0, 0.65, 0.30],  icon: '💬', label: '💬 Press E to talk to Ana' },
   { id: 'dogpark_enter', x: -70, z: 20,  color: [0.32, 0.78, 0.40], icon: '🌳', label: '🌳 Press E to visit the Dog Park' },
   { id: 'fetch_derby',   x: -56, z: 28,  color: [1.00, 0.45, 0.20], icon: '🎾', label: '🎾 Press E for the Fetch Derby!' },
-  { id: 'enter_house',   x: 0,   z: 47,  color: [0.85, 0.6, 0.3],   icon: '🏠', label: '🏠 Press E to enter your house' },
-  { id: 'academy',       x: -40, z: -40, color: [0.98, 0.95, 0.50], icon: '🏫', label: '🏫 Press E to enter Puppy Academy' },
-  { id: 'library',       x: 40,  z: -90, color: [0.75, 0.40, 0.30], icon: '📚', label: '📚 Press E to enter The Library' },
-  { id: 'vetclinic',     x: -80, z: -60, color: [0.50, 0.90, 0.70], icon: '🏥', label: '🏥 Press E to visit the Vet Clinic' },
+  { id: 'enter_house',   x: 0,   z: 47,  color: [0.85, 0.6, 0.3],   icon: '🏠', label: '🏠 Press E to enter your house', r: 9 },
+  { id: 'academy',       x: -40, z: -40, color: [0.98, 0.95, 0.50], icon: '🏫', label: '🏫 Press E to enter Puppy Academy', r: 9 },
+  { id: 'library',       x: 40,  z: -90, color: [0.75, 0.40, 0.30], icon: '📚', label: '📚 Press E to enter The Library', r: 9 },
+  { id: 'vetclinic',     x: -80, z: -60, color: [0.50, 0.90, 0.70], icon: '🏥', label: '🏥 Press E to visit the Vet Clinic', r: 9 },
   { id: 'dogshow',       x: -100,z: 60,  color: [0.95, 0.85, 0.20], icon: '🏆', label: '🏆 Press E to enter the Dog Show' },
   { id: 'agility',       x: 100, z: 60,  color: [0.50, 0.90, 0.50], icon: '🐾', label: '🐾 Press E to start the Agility Course' },
   { id: 'digsite',       x: -30, z: -135,color: [0.85, 0.75, 0.55], icon: '⛏️', label: '⛏️ Press E to start digging!' },
   { id: 'beach',         x: 60,  z: 110, color: [0.98, 0.92, 0.50], icon: '🏖️', label: '🏖️ Press E to play at the beach' },
   { id: 'garden',        x: 110, z: 20,  color: [0.50, 0.85, 0.40], icon: '🌱', label: '🌱 Press E to visit the garden' },
   { id: 'feed_dog',            x: 6,   z: 52,  color: [1.00, 0.55, 0.10], icon: '🍖', label: '🍖 Press E to feed your puppy!' },
-  { id: 'enter_indoor_dog_park', x: 80,  z: 4,   color: [0.78, 0.51, 0.86], icon: '🏋️', label: '🏋️ Press E to enter the Indoor Dog Park' },
+  { id: 'enter_indoor_dog_park', x: 80,  z: 4,   color: [0.78, 0.51, 0.86], icon: '🏋️', label: '🏋️ Press E to enter the Indoor Dog Park', r: 9 },
   { id: 'dance_party',         x: -90, z: 5,   color: [1.00, 0.41, 0.71], icon: '🎵', label: '🎵 Press E for Dance Party!' },
   { id: 'bakery_game',         x: 30,  z: -44, color: [1.00, 0.76, 0.30], icon: '🥐', label: '🥐 Press E to bake dog treats!' },
   { id: 'dog_wash',            x: 115, z: 25,  color: [0.40, 0.80, 1.00], icon: '🛁', label: '🛁 Press E to wash your puppy!' },
@@ -297,7 +297,8 @@ export class WorldScene3D {
     this.agilityCourse.hide();
     this.dogShowArena = new DogShowArena(this.scene);
     this.dogShowArena.build();
-    this.dogShowArena.hide();
+    // Arena stays visible on the map as a landmark (build() already tucks away
+    // the gates/ribbons/crowd until a show actually starts).
     this.fetchDerby = new FetchDerby(this.scene);
     this.fetchDerby.build();
     this.fetchDerby.hide();
@@ -1005,10 +1006,13 @@ export class WorldScene3D {
     });
 
     this.specialZones.forEach((sz) => {
+      // Building-entry zones can opt into a wider trigger radius (sz.zone.r) so
+      // the entry prompt reaches across the building's "staff" NPCs out front.
+      const r = sz.zone.r || SPECIAL_RADIUS;
       const dx = sz.pos.x - this.dog.position.x;
       const dz = sz.pos.z - this.dog.position.z;
       const d2 = dx * dx + dz * dz;
-      if (d2 < SPECIAL_RADIUS * SPECIAL_RADIUS && d2 < nearestDist) {
+      if (d2 < r * r && d2 < nearestDist) {
         nearest = sz; nearestDist = d2;
         nearestKind = 'special';
         nearestHint = sz.zone.label;
@@ -1016,8 +1020,12 @@ export class WorldScene3D {
     });
 
     // Chattable NPCs (people/dogs/cats/birds/squirrels) — within ~5 units.
+    // Building entries & activities (trivia/special zones) take PRIORITY: many
+    // buildings have a themed "staff" NPC standing right at the door (e.g. the
+    // vet's Dr. Goodpaws, the academy's Prof. Pawsworth). Without this guard the
+    // closer NPC would win the prompt and you could never enter the building.
     const NPC_CHAT_RADIUS = 5;
-    if (this.npcManager && this.npcManager.npcs) {
+    if (!nearest && this.npcManager && this.npcManager.npcs) {
       this.npcManager.npcs.forEach((npc) => {
         if (!npc.root || !npc.name) return;
         const dx = npc.root.position.x - this.dog.position.x;
@@ -1236,7 +1244,8 @@ export class WorldScene3D {
   // The crowd cheers throughout and a ribbon is awarded in-world.
   _startDogShow() {
     if (this._showActive) return;
-    this.dogShowArena.show();
+    // The arena is already standing on the map; just light up the gates and
+    // get the crowd cheering.
     this.dogShowArena.resetGates();
     this.dogShowArena.showGates();
     this.dogShowArena.animateCrowd();
@@ -1353,8 +1362,7 @@ export class WorldScene3D {
     this.dogShowArena.stopCrowd();
     this._restoreShowCam();
 
-    if (place == null) {            // cancelled — pack the arena away
-      this.dogShowArena.hide();
+    if (place == null) {            // cancelled — arena stays standing
       return;
     }
 
@@ -1374,8 +1382,9 @@ export class WorldScene3D {
     showZoneLabel(`${names[place]}  +${coins}🪙 +${bones}🦴`);
     if (this._saveSoon) this._saveSoon();
 
-    // Leave the ribbon up to admire, then quietly pack the arena away.
-    setTimeout(() => { this.dogShowArena.hideRibbons(); this.dogShowArena.hide(); }, 6000);
+    // Leave the ribbon up to admire, then tuck just the ribbon away (the arena
+    // stays standing on the map).
+    setTimeout(() => { this.dogShowArena.hideRibbons(); }, 6000);
   }
 
   _restoreShowCam() {

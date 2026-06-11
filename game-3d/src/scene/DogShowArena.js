@@ -64,8 +64,13 @@ export class DogShowArena {
     this._buildRibbons();
     this._buildGates();
     this._buildPoseMarker();
-    // Start hidden until explicitly shown
-    this.hide();
+    // The arena itself is ALWAYS visible — it's a landmark you can see across
+    // the map. Only the interactive bits (gates, pose spotlight, ribbons) and
+    // the crowd animation are reserved for an active show.
+    this.hideRibbons();
+    this.hideGates();
+    this.hidePoseMarker();
+    this.stopCrowd();
   }
 
   show() {
