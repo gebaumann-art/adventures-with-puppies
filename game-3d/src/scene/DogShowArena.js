@@ -7,6 +7,7 @@ import {
   DynamicTexture,
   Color3,
   Vector3,
+  TransformNode,
 } from '@babylonjs/core';
 
 const ARENA_X = -100;
@@ -61,6 +62,8 @@ export class DogShowArena {
     this._buildBunting();
     this._buildEntranceArch();
     this._buildRibbons();
+    this._buildGates();
+    this._buildPoseMarker();
     // Start hidden until explicitly shown
     this.hide();
   }
@@ -72,29 +75,99 @@ export class DogShowArena {
   hide() {
     this._meshes.forEach(m => { m.isVisible = false; });
     this.hideRibbons();
+    this.hideGates();
+    this.hidePoseMarker();
     this.stopCrowd();
   }
 
-  // Make spectator NPCs bounce and wave arms excitedly
+  // ── On-map show helpers ──────────────────────────────────────────────────
+
+  // Six sparkly gate rings the dog trots through during the "trot" stage.
+  // Returns their ground positions (pass-through detection lives in the scene).
+  getRingGates() {
+    const rx = 10, rz = 7.5, n = 6;
+    const gates = [];
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (i / n) * Math.PI * 2;  // start at the south entrance
+      gates.push({ x: ARENA_X + Math.cos(a) * rx, z: ARENA_Z + Math.sin(a) * rz });
+    }
+    return gates;
+  }
+
+  _buildGates() {
+    this._gateMeshes = [];
+    this.getRingGates().forEach((g, i) => {
+      // A small glowing hoop (thin torus approximated by a flat ring cylinder).
+      const ring = MeshBuilder.CreateTorus(`dsa_gate_${i}`, {
+        diameter: 2.4, thickness: 0.28, tessellation: 16,
+      }, this.scene);
+      ring.position = new Vector3(g.x, 1.4, g.z);
+      ring.rotation.x = Math.PI / 2;   // stand upright facing the trot path
+      const m = new StandardMaterial(`dsa_gateMat_${i}`, this.scene);
+      m.diffuseColor = new Color3(1.0, 0.45, 0.85);
+      m.emissiveColor = new Color3(0.7, 0.2, 0.55);
+      ring.material = m;
+      ring.isVisible = false;
+      this._gateMeshes.push(ring);
+    });
+  }
+
+  // Toggle gate visibility and (optionally) recolor a gate once cleared.
+  showGates() { if (this._gateMeshes) this._gateMeshes.forEach(g => { g.isVisible = true; }); }
+  hideGates() { if (this._gateMeshes) this._gateMeshes.forEach(g => { g.isVisible = false; }); }
+  markGateCleared(i) {
+    if (this._gateMeshes && this._gateMeshes[i]) {
+      const m = this._gateMeshes[i].material;
+      m.diffuseColor = new Color3(0.3, 0.9, 0.4);
+      m.emissiveColor = new Color3(0.15, 0.55, 0.2);
+    }
+  }
+  resetGates() {
+    if (!this._gateMeshes) return;
+    this._gateMeshes.forEach(g => {
+      g.material.diffuseColor = new Color3(1.0, 0.45, 0.85);
+      g.material.emissiveColor = new Color3(0.7, 0.2, 0.55);
+    });
+  }
+
+  // Glowing golden spotlight the dog stands on for the final pose.
+  _buildPoseMarker() {
+    const disc = MeshBuilder.CreateCylinder('dsa_poseMark', {
+      diameter: 3.2, height: 0.06, tessellation: 32,
+    }, this.scene);
+    disc.position = new Vector3(ARENA_X, 0.26, ARENA_Z);
+    const m = new StandardMaterial('dsa_poseMarkMat', this.scene);
+    m.diffuseColor = new Color3(1.0, 0.85, 0.25);
+    m.emissiveColor = new Color3(0.85, 0.65, 0.15);
+    m.specularColor = new Color3(0, 0, 0);
+    m.alpha = 0.8;
+    disc.material = m;
+    disc.isVisible = false;
+    this._poseMarker = disc;
+  }
+  showPoseMarker() { if (this._poseMarker) this._poseMarker.isVisible = true; }
+  hidePoseMarker() { if (this._poseMarker) this._poseMarker.isVisible = false; }
+  pulsePoseMarker(scale) {
+    if (this._poseMarker) this._poseMarker.scaling.set(scale, 1, scale);
+  }
+
+  // Make spectator NPCs bounce in their seats and wave both arms overhead —
+  // a real cheering crowd. The whole person bobs as one unit (parented to a
+  // root node) so heads never separate from bodies.
   animateCrowd() {
     this.stopCrowd();
     let tick = 0;
     this._animHandle = setInterval(() => {
       tick += 0.18;
-      this._spectators.forEach((spec, i) => {
-        const offset = i * (Math.PI / 4);
-        // Body/head bounce — bigger amplitude than before (0.38 vs 0.18)
-        const bob = Math.sin(tick + offset) * 0.38;
-        spec.head.position.y = spec.headBaseY + bob;
-        spec.body.position.y = spec.bodyBaseY + bob * 0.6;
-        // Arms raise and wave — opposite phase to each other for excitement
-        if (spec.arms) {
-          spec.arms.forEach(({ arm, baseRotZ }, j) => {
-            // Each arm alternates up/down out-of-phase for a "waving" look
-            const swing = Math.sin(tick + offset + j * Math.PI) * 1.1;
-            arm.rotation.z = baseRotZ + swing;
-          });
-        }
+      this._spectators.forEach((spec) => {
+        // Small upward bounce — stays anchored on the bench, never floats away.
+        const bob = Math.abs(Math.sin(tick + spec.phase)) * 0.16;
+        spec.root.position.y = spec.baseY + bob;
+        // Both arms sweep side-to-side overhead, the two arms out of phase.
+        spec.arms.forEach(({ pivot, baseRotZ }, j) => {
+          const wave = Math.sin(tick * 1.7 + spec.phase + j * Math.PI) * 0.5;
+          pivot.rotation.z = baseRotZ + wave;
+        });
       });
     }, 50);
   }
@@ -104,24 +177,35 @@ export class DogShowArena {
       clearInterval(this._animHandle);
       this._animHandle = null;
     }
-    // Reset positions
+    // Settle everyone back onto the bench with arms at rest.
     this._spectators.forEach(spec => {
-      spec.head.position.y = spec.headBaseY;
-      spec.body.position.y = spec.bodyBaseY;
+      spec.root.position.y = spec.baseY;
+      spec.arms.forEach(({ pivot, baseRotZ }) => { pivot.rotation.z = baseRotZ; });
     });
   }
 
-  // Display ribbon in the center of the ring for place 1, 2, or 3
+  // Display ribbon in the center of the ring for place 1, 2, or 3, and give
+  // it a celebratory spin so it sparkles for the winner.
   showRibbons(place) {
     this.hideRibbons();
     const r = this._ribbons[place];
-    if (r) r.forEach(m => { m.isVisible = true; });
+    if (!r) return;
+    r.forEach(m => { m.isVisible = true; });
+    let t = 0;
+    this._ribbonObs = this.scene.onBeforeRenderObservable.add(() => {
+      t += 0.04;
+      r.forEach(m => { m.rotation.y = t; });
+    });
   }
 
   hideRibbons() {
+    if (this._ribbonObs) {
+      this.scene.onBeforeRenderObservable.remove(this._ribbonObs);
+      this._ribbonObs = null;
+    }
     [1, 2, 3].forEach(p => {
       const r = this._ribbons[p];
-      if (r) r.forEach(m => { m.isVisible = false; });
+      if (r) r.forEach(m => { m.isVisible = false; m.rotation.y = 0; });
     });
   }
 
@@ -273,7 +357,9 @@ export class DogShowArena {
     });
   }
 
-  // ── 8 Spectator NPCs sitting in bleachers ───────────────────────────────
+  // ── 8 Spectator NPCs seated in the bleachers, facing the ring (−Z) ───────
+  // Each person is a full little body (hips, head, two legs, two raised arms)
+  // parented to a root TransformNode so they bob as one and never come apart.
   _buildSpectators() {
     const skinColors = [
       [1.0, 0.85, 0.65], [0.90, 0.70, 0.50],
@@ -286,48 +372,88 @@ export class DogShowArena {
       const seatX = ARENA_X - 8 + col * 5.5 + (row === 1 ? 2.5 : 0);
       const rowY = 0.3 + row * 0.9;
       const seatZ = ARENA_Z + 14.5 + row * 1.6;
+      const benchTop = rowY + 0.18;            // top surface of the bench plank
 
       const clothing = NPC_COLORS[i % NPC_COLORS.length];
       const skin = skinColors[i % skinColors.length];
+      const pants = [clothing[0] * 0.45, clothing[1] * 0.45, clothing[2] * 0.55];
+
+      // Root groups the whole person; sits right on the bench.
+      const root = new TransformNode(`dsa_spec_${i}`, this.scene);
+      root.position = new Vector3(seatX, benchTop, seatZ);
 
       const bodyMat = this._mat(`dsa_npcBody_${i}`, clothing);
       const headMat = this._mat(`dsa_npcHead_${i}`, skin);
+      const legMat  = this._mat(`dsa_npcLeg_${i}`, pants);
 
-      // Body (box)
-      const bodyH = 0.7;
+      // Torso — rests just above the bench
+      const bodyH = 0.6;
       const body = MeshBuilder.CreateBox(`dsa_npcBody_${i}`, {
-        width: 0.5, depth: 0.35, height: bodyH,
+        width: 0.5, depth: 0.34, height: bodyH,
       }, this.scene);
-      const bodyBaseY = rowY + bodyH / 2 + 0.18;
-      body.position = new Vector3(seatX, bodyBaseY, seatZ);
+      body.parent = root;
+      body.position = new Vector3(0, bodyH / 2 + 0.02, 0);
       body.material = bodyMat;
       this._track(body);
 
-      // Head (sphere)
+      // Head
       const head = MeshBuilder.CreateSphere(`dsa_npcHead_${i}`, {
-        diameter: 0.42, segments: 8,
+        diameter: 0.4, segments: 8,
       }, this.scene);
-      const headBaseY = bodyBaseY + bodyH / 2 + 0.22;
-      head.position = new Vector3(seatX, headBaseY, seatZ);
+      head.parent = root;
+      head.position = new Vector3(0, bodyH + 0.24, 0);
       head.material = headMat;
       this._track(head);
 
-      // Arms (small boxes sticking out) — stored for crowd animation
-      const armMat = this._mat(`dsa_npcArm_${i}`, clothing);
-      const arms = [];
-      [-0.4, 0.4].forEach((ox, side) => {
-        const arm = MeshBuilder.CreateBox(`dsa_npcArm_${i}_${side}`, {
-          width: 0.12, depth: 0.12, height: 0.5,
+      // Legs — thighs forward toward the ring (−Z), shins hanging down.
+      [-0.13, 0.13].forEach((ox, li) => {
+        const thigh = MeshBuilder.CreateBox(`dsa_npcThigh_${i}_${li}`, {
+          width: 0.16, depth: 0.5, height: 0.16,
         }, this.scene);
-        arm.position = new Vector3(seatX + ox, bodyBaseY + 0.05, seatZ);
-        const baseRotZ = ox < 0 ? 0.4 : -0.4;
-        arm.rotation.z = baseRotZ;
-        arm.material = armMat;
-        this._track(arm);
-        arms.push({ arm, baseRotZ });
+        thigh.parent = root;
+        thigh.position = new Vector3(ox, 0.02, -0.28);
+        thigh.material = legMat;
+        this._track(thigh);
+
+        const shin = MeshBuilder.CreateBox(`dsa_npcShin_${i}_${li}`, {
+          width: 0.15, depth: 0.15, height: 0.5,
+        }, this.scene);
+        shin.parent = root;
+        shin.position = new Vector3(ox, -0.24, -0.5);
+        shin.material = legMat;
+        this._track(shin);
       });
 
-      this._spectators.push({ head, body, headBaseY, bodyBaseY, arms });
+      // Arms — raised overhead on shoulder pivots so they can wave.
+      const armMat = this._mat(`dsa_npcArm_${i}`, clothing);
+      const arms = [];
+      [-0.3, 0.3].forEach((ox, side) => {
+        const pivot = new TransformNode(`dsa_armPivot_${i}_${side}`, this.scene);
+        pivot.parent = root;
+        pivot.position = new Vector3(ox, bodyH - 0.02, 0);   // shoulder
+
+        const arm = MeshBuilder.CreateBox(`dsa_npcArm_${i}_${side}`, {
+          width: 0.12, depth: 0.12, height: 0.55,
+        }, this.scene);
+        arm.parent = pivot;
+        arm.position = new Vector3(0, 0.27, 0);              // extends up
+        arm.material = armMat;
+        this._track(arm);
+
+        const hand = MeshBuilder.CreateSphere(`dsa_npcHand_${i}_${side}`, {
+          diameter: 0.16, segments: 6,
+        }, this.scene);
+        hand.parent = pivot;
+        hand.position = new Vector3(0, 0.56, 0);
+        hand.material = headMat;
+        this._track(hand);
+
+        const baseRotZ = ox < 0 ? 0.22 : -0.22;             // angled slightly out
+        pivot.rotation.z = baseRotZ;
+        arms.push({ pivot, baseRotZ });
+      });
+
+      this._spectators.push({ root, baseY: benchTop, arms, phase: i * (Math.PI / 4) });
     }
   }
 

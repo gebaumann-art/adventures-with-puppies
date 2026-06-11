@@ -34,7 +34,6 @@ import { ParticleEffects } from './ParticleEffects.js';
 import { AgilityCourseMesh, AGILITY_COURSE_CENTER } from './AgilityCourseMesh.js';
 import { DogShowArena } from './DogShowArena.js';
 import { AgilityUI } from '../ui/AgilityUI.js';
-import { DogShowUI } from '../ui/DogShowUI.js';
 import { openAcademy, closeAcademy } from '../ui/AcademyUI.js';
 import { initAcademy, getStreakCount, updateStreak, getDailyChallenge } from '../systems/AcademySystem.js';
 import { initAchievements, checkAchievements } from '../systems/AchievementSystem.js';
@@ -155,6 +154,10 @@ export class WorldScene3D {
     this._agilityHurdles = null;
     this._agilityPenalty = 0;
     this._agilitySavedCam = null;
+    // Interactive on-map dog show state
+    this._showActive = false;
+    this._showState = null;
+    this._showSavedCam = null;
     // Smooth camera zoom animation target ({radius, beta} lerped each frame)
     this._camAnim = null;
     // Pet care (Tamagotchi-lite needs system)
@@ -474,11 +477,15 @@ export class WorldScene3D {
       this._updateCameraTarget();
       if (this.inInterior) {
         this._updateInteriorInteractables(dt);
+      } else if (this._showActive) {
+        // During the on-map dog show, suppress zone hints/E-prompts; the puppy
+        // is busy performing. SPACE/B drive the routine instead.
+        hideInteractHint();
       } else {
         this._updateZoneLabel();
         this._updateInteractables();
       }
-      this._handleInteractPress();
+      if (!this._showActive) this._handleInteractPress();
     }
 
     // Always animate the dog (so idle breathing happens during modals too).
@@ -517,7 +524,12 @@ export class WorldScene3D {
       this._lastB = this.keys.b;
       if (barkPressed) {
         if (this.dog.doBark) this.dog.doBark();
-        showZoneLabel('🐕 WOOF! WOOF!');
+        // During the dog show's "tricks" stage a bark counts toward the routine.
+        if (this._showActive && this._showState === 'tricks') {
+          this._showBarkPending = true;
+        } else {
+          showZoneLabel('🐕 WOOF! WOOF!');
+        }
         if (this.petCare) this.petCare.onHappened();  // barking = happiness
       }
     }
@@ -674,6 +686,11 @@ export class WorldScene3D {
         this._agilityUI.showResults(timeSeconds, stars);
         this._agilityActive = false;
       }
+    }
+
+    // On-map dog show stage machine (trot → tricks → pose).
+    if (this._showActive) {
+      this._updateDogShow(dt);
     }
   }
 
@@ -1165,22 +1182,161 @@ export class WorldScene3D {
     }
   }
 
+  // ── On-map Dog Show ───────────────────────────────────────────────────
+  // A real walk-the-ring experience (no pop-up). Three on-map stages:
+  //   1. Trot — pass the puppy through all six sparkly gates around the ring
+  //   2. Tricks — press SPACE to jump and B to bark for the judges
+  //   3. Pose — stand on the golden spotlight in the center
+  // The crowd cheers throughout and a ribbon is awarded in-world.
   _startDogShow() {
-    this.modalOpen = true;
+    if (this._showActive) return;
     this.dogShowArena.show();
-    this.dogShowArena.animateCrowd();          // crowd bounces & waves arms from the start
-    const ui = new DogShowUI(this.gameState);
-    ui.show();
-    ui.startShow((result) => {
-      this.modalOpen = false;
-      this.dogShowArena.stopCrowd();           // stop waving once the show ends
-      this.dogShowArena.showRibbons(result.place);
-      this.particles.achievementPop(this.dog.position);
-      addBones(this.gameState, result.place === 1 ? 10 : result.place === 2 ? 6 : 3);
-      if (this.petCare) this.petCare.onHappened();   // dog show = lots of fun!
-      checkAchievements(this.gameState, { event: 'dog_show', value: result.place });
-      setTimeout(() => { this.dogShowArena.hideRibbons(); }, 5000);
-    });
+    this.dogShowArena.resetGates();
+    this.dogShowArena.showGates();
+    this.dogShowArena.animateCrowd();
+
+    // Swoop the camera down to puppy height (remember where it was).
+    this._showSavedCam = { radius: this.camera.radius, beta: this.camera.beta };
+    this._camAnim = { radius: 18, beta: 1.18 };
+
+    this._showActive = true;
+    this._showState = 'trot';
+    this._showGates = this.dogShowArena.getRingGates().map(g => ({ ...g, done: false }));
+    this._showTrotDone = -1;
+    this._showTricks = 0;
+    this._showTrickTarget = 4;
+    this._showPoseT = 0;
+    this._showElapsed = 0;
+    this._lastShowHop = false;
+    this._showBarkPending = false;
+
+    showZoneLabel('🐾 Trot around the ring — pass through all the sparkly gates!');
+  }
+
+  _updateDogShow(dt) {
+    const C = this.dogShowArena.getCenterPosition();
+
+    // Wandering far from the ring cancels the show and restores the camera.
+    const ddx = this.dog.position.x - C.x;
+    const ddz = this.dog.position.z - C.z;
+    if (ddx * ddx + ddz * ddz > 42 * 42) {
+      this._endDogShow(null);
+      showZoneLabel('🐾 Dog show cancelled — come back any time!');
+      return;
+    }
+
+    this._showElapsed += dt;
+
+    if (this._showState === 'trot') {
+      let done = 0;
+      this._showGates.forEach((g, i) => {
+        if (!g.done) {
+          const dx = g.x - this.dog.position.x;
+          const dz = g.z - this.dog.position.z;
+          if (dx * dx + dz * dz < 2.4 * 2.4) {
+            g.done = true;
+            this.dogShowArena.markGateCleared(i);
+            if (this.particles) this.particles.bonePop(this.dog.position);
+          }
+        }
+        if (g.done) done++;
+      });
+      if (done !== this._showTrotDone) {
+        this._showTrotDone = done;
+        if (done > 0 && done < this._showGates.length) {
+          showZoneLabel(`🌟 Gate ${done} of ${this._showGates.length}!`);
+        }
+      }
+      if (done === this._showGates.length) {
+        this._showState = 'tricks';
+        this.dogShowArena.hideGates();
+        if (this.particles) this.particles.achievementPop(this.dog.position);
+        showZoneLabel('✨ Show off! Press SPACE to jump and B to bark for the judges!');
+      }
+    } else if (this._showState === 'tricks') {
+      // Each hop (rising edge) or bark counts as one trick.
+      const hopNow = !!this.dog._hopActive;
+      if (hopNow && !this._lastShowHop) {
+        this._showTricks++;
+        if (this.particles) this.particles.heartBurst(this.dog.position);
+        showZoneLabel(`🎀 Trick ${Math.min(this._showTricks, this._showTrickTarget)} of ${this._showTrickTarget}!`);
+      }
+      this._lastShowHop = hopNow;
+      if (this._showBarkPending) {
+        this._showBarkPending = false;
+        this._showTricks++;
+        if (this.particles) this.particles.coinShower(this.dog.position);
+        showZoneLabel(`🎀 Trick ${Math.min(this._showTricks, this._showTrickTarget)} of ${this._showTrickTarget}!`);
+      }
+      if (this._showTricks >= this._showTrickTarget) {
+        this._showState = 'pose';
+        this._showPoseT = 0;
+        this.dogShowArena.showPoseMarker();
+        showZoneLabel('🏆 Final pose! Stand on the golden spotlight in the center!');
+      }
+    } else if (this._showState === 'pose') {
+      // Gentle pulse on the spotlight.
+      const pulse = 1 + Math.sin(this._showElapsed * 4) * 0.08;
+      this.dogShowArena.pulsePoseMarker(pulse);
+      const dx = C.x - this.dog.position.x;
+      const dz = C.z - this.dog.position.z;
+      if (dx * dx + dz * dz < 2.0 * 2.0) {
+        this._showPoseT += dt;
+        if (this._showPoseT >= 1.6) {
+          this._endDogShow(this._computeShowPlace());
+        }
+      } else {
+        this._showPoseT = Math.max(0, this._showPoseT - dt * 0.5);
+      }
+    }
+  }
+
+  _computeShowPlace() {
+    // Everyone finishes a winner; speed decides the ribbon tier.
+    const t = this._showElapsed || 0;
+    if (t < 40) return 1;
+    if (t < 70) return 2;
+    return 3;
+  }
+
+  _endDogShow(place) {
+    this._showActive = false;
+    this._showState = null;
+    this.dogShowArena.hideGates();
+    this.dogShowArena.hidePoseMarker();
+    this.dogShowArena.stopCrowd();
+    this._restoreShowCam();
+
+    if (place == null) {            // cancelled — pack the arena away
+      this.dogShowArena.hide();
+      return;
+    }
+
+    this.dogShowArena.showRibbons(place);
+    if (this.particles) this.particles.achievementPop(this.dog.position);
+    const coins = place === 1 ? 50 : place === 2 ? 30 : 15;
+    const bones = place === 1 ? 10 : place === 2 ? 6 : 3;
+    addCoins(this.gameState, coins);
+    addBones(this.gameState, bones);
+    if (this.petCare) this.petCare.onHappened();
+    checkAchievements(this.gameState, { event: 'dog_show', value: place });
+    const names = {
+      1: '🥇 1st Place — Best in Show!',
+      2: '🥈 2nd Place — Pawsome job!',
+      3: '🥉 3rd Place — Good dog!',
+    };
+    showZoneLabel(`${names[place]}  +${coins}🪙 +${bones}🦴`);
+    if (this._saveSoon) this._saveSoon();
+
+    // Leave the ribbon up to admire, then quietly pack the arena away.
+    setTimeout(() => { this.dogShowArena.hideRibbons(); this.dogShowArena.hide(); }, 6000);
+  }
+
+  _restoreShowCam() {
+    if (this._showSavedCam) {
+      this._camAnim = { ...this._showSavedCam };
+      this._showSavedCam = null;
+    }
   }
 
   _startAgilityRun() {
@@ -1691,6 +1847,13 @@ export class WorldScene3D {
       }
       if (this.agilityCourse) this.agilityCourse.hide();
       this._restoreAgilityCam();
+      return;
+    }
+
+    // 4b. Dog show — cancel the on-map routine and restore the camera
+    if (this._showActive) {
+      this._endDogShow(null);
+      showZoneLabel('🐾 Dog show cancelled — come back any time!');
       return;
     }
 

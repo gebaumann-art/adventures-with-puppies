@@ -106,13 +106,194 @@ export class WorldBuilder {
     return m;
   }
 
+  // ── Procedural texture system ──────────────────────────────────────────
+  // Paint a tileable pattern onto a cached offscreen canvas (expensive part
+  // happens once per pattern key), then build a textured StandardMaterial
+  // that reuses it via drawImage. Gives the world a hand-painted, modern look
+  // instead of flat single-color faces.
+  _patternCanvas(key, size, paint) {
+    this._patCache = this._patCache || {};
+    if (this._patCache[key]) return this._patCache[key];
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    paint(c.getContext('2d'), size);
+    this._patCache[key] = c;
+    return c;
+  }
+
+  _texturedMat(name, patKey, size, paint, opts = {}) {
+    const { uScale = 1, vScale = 1, tint = [1, 1, 1], spec = 0.03, emissive = 0 } = opts;
+    const canvas = this._patternCanvas(patKey, size, paint);
+    const tex = new DynamicTexture(name + '_tex', { width: size, height: size }, this.scene, false);
+    tex.getContext().drawImage(canvas, 0, 0);
+    tex.update();
+    tex.wrapU = Texture.WRAP_ADDRESSMODE;
+    tex.wrapV = Texture.WRAP_ADDRESSMODE;
+    tex.uScale = uScale;
+    tex.vScale = vScale;
+    const m = new StandardMaterial(name, this.scene);
+    m.diffuseTexture = tex;
+    m.diffuseColor = new Color3(tint[0], tint[1], tint[2]);
+    m.specularColor = new Color3(spec, spec, spec);
+    if (emissive > 0) m.emissiveColor = new Color3(emissive, emissive, emissive);
+    return m;
+  }
+
+  // ── Pattern painters (all tileable) ─────────────────────────────────────
+  _paintGrass(ctx, S) {
+    ctx.fillStyle = '#5fae3a';
+    ctx.fillRect(0, 0, S, S);
+    // Soft mottled patches for depth
+    const patches = ['#6cbf45', '#57a233', '#74c84e', '#4e9b2e', '#67ba41'];
+    ctx.globalAlpha = 0.45;
+    for (let i = 0; i < 240; i++) {
+      const x = Math.random() * S, y = Math.random() * S, r = 7 + Math.random() * 24;
+      ctx.fillStyle = patches[(Math.random() * patches.length) | 0];
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // Individual blades
+    for (let i = 0; i < 1500; i++) {
+      const x = Math.random() * S, y = Math.random() * S, h = 3 + Math.random() * 8;
+      ctx.strokeStyle = Math.random() < 0.5 ? '#4c9a2a' : '#83d65c';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + (Math.random() * 2 - 1), y - h);
+      ctx.stroke();
+    }
+    // A few tiny flowers
+    const petals = ['#ffe14d', '#ff7bce', '#ffffff', '#ff9d5c'];
+    for (let i = 0; i < 18; i++) {
+      const x = Math.random() * S, y = Math.random() * S;
+      ctx.fillStyle = petals[(Math.random() * petals.length) | 0];
+      ctx.beginPath(); ctx.arc(x, y, 1.6, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  _paintConcrete(ctx, S) {
+    ctx.fillStyle = '#b9b6b0';
+    ctx.fillRect(0, 0, S, S);
+    const n = 4, g = S / n;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const shade = 176 + ((Math.random() * 28) | 0) - 14;
+        ctx.fillStyle = `rgb(${shade},${shade - 3},${shade - 8})`;
+        ctx.fillRect(c * g + 1, r * g + 1, g - 2, g - 2);
+      }
+    }
+    // Grout lines
+    ctx.strokeStyle = 'rgba(90,88,84,0.55)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i <= n; i++) {
+      ctx.beginPath(); ctx.moveTo(i * g, 0); ctx.lineTo(i * g, S); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i * g); ctx.lineTo(S, i * g); ctx.stroke();
+    }
+    // Speckle
+    for (let i = 0; i < 1800; i++) {
+      const x = Math.random() * S, y = Math.random() * S;
+      ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(60,60,60,0.10)';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  _paintSand(ctx, S) {
+    ctx.fillStyle = '#e9d9a3';
+    ctx.fillRect(0, 0, S, S);
+    const tans = ['#efe2b4', '#e0cd92', '#f2e7c0', '#d8c187'];
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < 200; i++) {
+      const x = Math.random() * S, y = Math.random() * S, r = 6 + Math.random() * 20;
+      ctx.fillStyle = tans[(Math.random() * tans.length) | 0];
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // Grain speckle
+    for (let i = 0; i < 2600; i++) {
+      const x = Math.random() * S, y = Math.random() * S;
+      ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.18)' : 'rgba(150,120,70,0.16)';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  // Brick/plaster facade in a given base color (baked into the canvas).
+  _paintBrick(ctx, S, [r, g, b]) {
+    const to255 = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
+    const br = to255(r), bg = to255(g), bb = to255(b);
+    // Mortar
+    ctx.fillStyle = `rgb(${to255(r * 0.6 + 0.32)},${to255(g * 0.6 + 0.32)},${to255(b * 0.6 + 0.32)})`;
+    ctx.fillRect(0, 0, S, S);
+    const rows = 8, bh = S / rows, bw = S / 4;
+    for (let row = 0; row < rows; row++) {
+      const offset = (row % 2) * (bw / 2);
+      for (let bx = -1; bx < 5; bx++) {
+        const x = bx * bw + offset + 2;
+        const y = row * bh + 2;
+        const jitter = (Math.random() * 30) - 15;
+        ctx.fillStyle = `rgb(${Math.max(0, Math.min(255, br + jitter))},${Math.max(0, Math.min(255, bg + jitter))},${Math.max(0, Math.min(255, bb + jitter))})`;
+        ctx.fillRect(x, y, bw - 4, bh - 4);
+      }
+    }
+  }
+
+  // Horizontal clapboard siding in a base color.
+  _paintSiding(ctx, S, [r, g, b]) {
+    const to255 = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
+    ctx.fillStyle = `rgb(${to255(r)},${to255(g)},${to255(b)})`;
+    ctx.fillRect(0, 0, S, S);
+    const planks = 12, ph = S / planks;
+    for (let i = 0; i < planks; i++) {
+      const y = i * ph;
+      // subtle highlight on the plank face
+      ctx.fillStyle = `rgba(255,255,255,0.06)`;
+      ctx.fillRect(0, y + 1, S, ph * 0.55);
+      // shadow line under each plank
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.fillRect(0, y + ph - 2, S, 2);
+    }
+  }
+
   _buildGround() {
     const ground = MeshBuilder.CreateGround('ground', {
       width: WORLD_SIZE, height: WORLD_SIZE, subdivisions: 4,
     }, this.scene);
-    ground.material = this._mat('groundMat', [0.45, 0.85, 0.35]);
+    // Detailed grass texture tiled across the whole world.
+    ground.material = this._texturedMat(
+      'groundMat', 'grass', 512, (c, S) => this._paintGrass(c, S),
+      { uScale: 46, vScale: 46 });
     ground.position.y = 0;
     ground.checkCollisions = false;
+  }
+
+  // Choose a ground texture category + tint for a zone patch.
+  _zonePatchMaterial(zone) {
+    const PAVED = new Set(['downtown']);
+    const SAND = new Set(['beach', 'digsite', 'dock']);
+    const SKIP = new Set(['ocean']); // water mesh covers this; keep flat blue
+    // tile roughly one texture cell per 8 world units
+    const uScale = Math.max(1, zone.w / 8);
+    const vScale = Math.max(1, zone.d / 8);
+
+    if (SKIP.has(zone.id)) {
+      return this._mat(`zoneMat_${zone.id}`, zone.color);
+    }
+    if (PAVED.has(zone.id)) {
+      return this._texturedMat(`zoneMat_${zone.id}`, 'concrete', 256,
+        (c, S) => this._paintConcrete(c, S), { uScale, vScale, tint: [1, 1, 1] });
+    }
+    if (SAND.has(zone.id)) {
+      return this._texturedMat(`zoneMat_${zone.id}`, 'sand', 256,
+        (c, S) => this._paintSand(c, S), { uScale, vScale, tint: [1, 1, 1] });
+    }
+    // Default: grass, lightly tinted toward the zone's identity color so
+    // each area keeps a subtle hue while reading as real grass.
+    const tint = [
+      0.72 + zone.color[0] * 0.28,
+      0.72 + zone.color[1] * 0.28,
+      0.72 + zone.color[2] * 0.28,
+    ];
+    return this._texturedMat(`zoneMat_${zone.id}`, 'grass', 256,
+      (c, S) => this._paintGrass(c, S), { uScale, vScale, tint });
   }
 
   // Build the colored "patches" for each zone — slightly raised boxes
@@ -128,7 +309,7 @@ export class WorldBuilder {
         width: zone.w, depth: zone.d, height: 0.2,
       }, this.scene);
       patch.position = new Vector3(zone.x, y, zone.z);
-      patch.material = this._mat(`zoneMat_${zone.id}`, zone.color);
+      patch.material = this._zonePatchMaterial(zone);
       patch.isPickable = false;
       this.zoneMeshes.push({ zone, mesh: patch });
     });
@@ -266,7 +447,11 @@ export class WorldBuilder {
     const left = pos.x - baseW / 2;
     const right = pos.x + baseW / 2;
 
-    const wallMat = this._mat(`${idPrefix}_wallMat`, wallColor);
+    // Clapboard siding in the wall color, baked into the pattern (keyed by color).
+    const wallMat = this._texturedMat(
+      `${idPrefix}_wallMat`, `siding_${wallColor.join('_')}`, 256,
+      (c, S) => this._paintSiding(c, S, wallColor),
+      { uScale: 4, vScale: 4 });
     const trimMat = this._mat(`${idPrefix}_trimMat`, trimColor);
     const roofMat = this._mat(`${idPrefix}_roofMat`, roofColor);
     const darkRoofMat = this._mat(`${idPrefix}_darkRoofMat`,
@@ -611,7 +796,11 @@ export class WorldBuilder {
         width: 14, depth: 10, height: 6.5,
       }, this.scene);
       wall.position = new Vector3(shop.x, 3.25, shop.z);
-      wall.material = this._mat(`shop_${i}_mat`, shop.color);
+      // Brick facade in the shop's color (baked into the pattern, keyed by color).
+      wall.material = this._texturedMat(
+        `shop_${i}_mat`, `brick_${shop.color.join('_')}`, 256,
+        (c, S) => this._paintBrick(c, S, shop.color),
+        { uScale: 3, vScale: 1.5 });
 
       // Flat awning
       const awning = MeshBuilder.CreateBox(`awning_${i}`, {
