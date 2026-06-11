@@ -77,3 +77,21 @@ export function getDogDisplayEmoji(dog) {
 export function getStageName(stage) {
   return { puppy: 'Puppy', adolescent: 'Teen Pup', adult: 'Adult Dog' }[stage] || 'Puppy';
 }
+
+// Growth-milestone celebration tracking. We remember which stage was last
+// celebrated so the in-world party fires exactly once per stage change.
+// Returns true the first time it sees a stage it hasn't celebrated yet.
+export function shouldCelebrateStage(dog) {
+  if (!dog) return false;
+  // First sighting: seed the baseline at the current stage (no celebration on
+  // load — only on an actual change while playing).
+  if (dog._celebratedStage === undefined) {
+    dog._celebratedStage = dog.stage;
+    return false;
+  }
+  if (dog.stage !== dog._celebratedStage) {
+    dog._celebratedStage = dog.stage;
+    return true;
+  }
+  return false;
+}

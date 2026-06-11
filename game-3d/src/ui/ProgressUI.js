@@ -740,9 +740,22 @@ export function openDailyChallenge(gameState, challenge, onClose) {
         </div>
       </div>` : '';
 
-    const rewardHtml = challenge.reward ? `
+    // Reward may be a plain string or a { coins, xp, bonusItem } object.
+    let rewardText = '';
+    if (challenge.reward) {
+      if (typeof challenge.reward === 'string') {
+        rewardText = challenge.reward;
+      } else {
+        const parts = [];
+        if (challenge.reward.coins) parts.push(`🪙 ${challenge.reward.coins} coins`);
+        if (challenge.reward.xp)    parts.push(`⭐ ${challenge.reward.xp} XP`);
+        if (challenge.reward.bonusItem) parts.push(`🎀 ${challenge.reward.bonusItem}`);
+        rewardText = parts.join('   ');
+      }
+    }
+    const rewardHtml = rewardText ? `
       <div class="dc-reward">
-        🎁 Reward: ${_esc(challenge.reward)}
+        🎁 Reward: ${_esc(rewardText)}
       </div>` : '';
 
     const actionHtml = isComplete

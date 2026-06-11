@@ -88,6 +88,7 @@ export class WorldBuilder {
     this._buildDigSite();
     this._buildBeach();
     this._buildCartoonDecor();
+    this._buildPaths();
   }
 
   // Helper for decoration materials — bright cartoon colors, low specular.
@@ -236,6 +237,108 @@ export class WorldBuilder {
     }
   }
 
+  // Roof shingles in a given base color. Overlapping rectangular tiles arranged
+  // in staggered rows, with a baked shadow strip under each row and a subtle
+  // highlight at the top edge of each tile.
+  _paintShingles(ctx, S, [r, g, b]) {
+    const to255 = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
+    const br = to255(r), bg = to255(g), bb = to255(b);
+    // Background: slightly darkened base for mortar/gap gaps
+    ctx.fillStyle = `rgb(${to255(r * 0.58)},${to255(g * 0.58)},${to255(b * 0.58)})`;
+    ctx.fillRect(0, 0, S, S);
+
+    const rows = 10;          // shingle rows per tile-height
+    const cols = 5;           // shingles per row
+    const sh = S / rows;      // height of one shingle row (exposed portion)
+    const sw = S / cols;      // width of one shingle
+    const overlap = sh * 0.35; // how much each row overlaps the one below
+
+    for (let row = 0; row < rows + 1; row++) {
+      const yTop = row * sh - overlap;
+      const tileH = sh + overlap;
+      const offset = (row % 2) * (sw / 2); // stagger every other row
+
+      for (let col = -1; col < cols + 1; col++) {
+        const xLeft = col * sw + offset;
+        const jitter = (Math.random() * 22 | 0) - 11;
+        // Main tile face
+        ctx.fillStyle = `rgb(${Math.max(0,Math.min(255,br+jitter))},${Math.max(0,Math.min(255,bg+jitter))},${Math.max(0,Math.min(255,bb+jitter))})`;
+        ctx.fillRect(xLeft + 1, yTop + 1, sw - 2, tileH - 2);
+        // Highlight strip at top of each tile
+        ctx.fillStyle = 'rgba(255,255,255,0.14)';
+        ctx.fillRect(xLeft + 1, yTop + 1, sw - 2, tileH * 0.22);
+        // Shadow strip at bottom of each tile (simulates row depth)
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.fillRect(xLeft + 1, yTop + tileH - sh * 0.28, sw - 2, sh * 0.28);
+      }
+    }
+    // Fine horizontal grout lines
+    ctx.strokeStyle = `rgba(${to255(r*0.45)},${to255(g*0.45)},${to255(b*0.45)},0.65)`;
+    ctx.lineWidth = 1;
+    for (let row = 0; row <= rows; row++) {
+      ctx.beginPath();
+      ctx.moveTo(0, row * sh);
+      ctx.lineTo(S, row * sh);
+      ctx.stroke();
+    }
+  }
+
+  // Tileable ocean water: blue base + lighter wavy crest streaks + foam flecks.
+  _paintWater(ctx, S) {
+    // Deep blue base
+    ctx.fillStyle = '#1a6fbf';
+    ctx.fillRect(0, 0, S, S);
+    // Mid-tone rolling colour wash
+    const waves = ['#1e7fd4', '#2589de', '#1878c8', '#2d8fe8'];
+    ctx.globalAlpha = 0.55;
+    for (let i = 0; i < 160; i++) {
+      const x = Math.random() * S, y = Math.random() * S;
+      const w = 18 + Math.random() * 40, h = 5 + Math.random() * 12;
+      ctx.fillStyle = waves[(Math.random() * waves.length) | 0];
+      ctx.beginPath();
+      ctx.ellipse(x, y, w / 2, h / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Wavy crest streaks — sinusoidal horizontal bands
+    ctx.strokeStyle = 'rgba(140,210,255,0.55)';
+    ctx.lineWidth = 1.5;
+    const wavRows = 10;
+    for (let wr = 0; wr < wavRows; wr++) {
+      const yBase = (wr / wavRows) * S + S / (wavRows * 2);
+      ctx.beginPath();
+      for (let x = 0; x <= S; x += 2) {
+        const y = yBase + Math.sin((x / S) * Math.PI * 5 + wr * 0.8) * (S / wavRows) * 0.28;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Lighter secondary crests
+    ctx.strokeStyle = 'rgba(200,238,255,0.35)';
+    ctx.lineWidth = 1;
+    for (let wr = 0; wr < wavRows * 2; wr++) {
+      const yBase = (wr / (wavRows * 2)) * S + S / (wavRows * 4);
+      ctx.beginPath();
+      for (let x = 0; x <= S; x += 2) {
+        const y = yBase + Math.sin((x / S) * Math.PI * 8 + wr * 1.3) * (S / (wavRows * 2)) * 0.35;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // White foam flecks scattered across surface
+    ctx.fillStyle = 'rgba(255,255,255,0.72)';
+    for (let i = 0; i < 220; i++) {
+      const x = Math.random() * S, y = Math.random() * S;
+      const fw = 3 + Math.random() * 8, fh = 1.5 + Math.random() * 3;
+      ctx.beginPath();
+      ctx.ellipse(x, y, fw / 2, fh / 2, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   // Horizontal clapboard siding in a base color.
   _paintSiding(ctx, S, [r, g, b]) {
     const to255 = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
@@ -322,11 +425,12 @@ export class WorldBuilder {
       width: 300, height: 60,
     }, this.scene);
     water.position = new Vector3(0, 0.25, 130);
-    const m = new StandardMaterial('waterMat', this.scene);
-    m.diffuseColor = new Color3(0.18, 0.62, 1.0);
-    m.alpha = 0.85;
-    m.specularColor = new Color3(0.4, 0.6, 0.9);
-    water.material = m;
+    // Procedural water texture: waves + foam, tiled densely for small-scale detail.
+    const wm = this._texturedMat(
+      'waterMat', 'water', 512, (c, S) => this._paintWater(c, S),
+      { uScale: 18, vScale: 6, tint: [1, 1, 1], spec: 0.35 });
+    wm.alpha = 0.88;
+    water.material = wm;
     water.isPickable = false;
   }
 
@@ -453,9 +557,17 @@ export class WorldBuilder {
       (c, S) => this._paintSiding(c, S, wallColor),
       { uScale: 4, vScale: 4 });
     const trimMat = this._mat(`${idPrefix}_trimMat`, trimColor);
-    const roofMat = this._mat(`${idPrefix}_roofMat`, roofColor);
-    const darkRoofMat = this._mat(`${idPrefix}_darkRoofMat`,
-      [roofColor[0] * 0.7, roofColor[1] * 0.7, roofColor[2] * 0.7]);
+    // Shingle texture keyed by roof color so the pattern canvas is painted once
+    // and shared across all instances that happen to share a color.
+    const roofMat = this._texturedMat(
+      `${idPrefix}_roofMat`, `shingle_${roofColor.join('_')}`, 256,
+      (c, S) => this._paintShingles(c, S, roofColor),
+      { uScale: 3, vScale: 2, tint: [1, 1, 1], spec: 0.06 });
+    const darkRoofColor = [roofColor[0] * 0.7, roofColor[1] * 0.7, roofColor[2] * 0.7];
+    const darkRoofMat = this._texturedMat(
+      `${idPrefix}_darkRoofMat`, `shingle_${darkRoofColor.map(v => v.toFixed(2)).join('_')}`, 256,
+      (c, S) => this._paintShingles(c, S, darkRoofColor),
+      { uScale: 2, vScale: 1.5, tint: [1, 1, 1], spec: 0.05 });
 
     // ── Story 1 (main body) ─────────────────────────────────────────
     const story1 = MeshBuilder.CreateBox(`${idPrefix}_story1`, {
@@ -767,7 +879,9 @@ export class WorldBuilder {
       width: 28, depth: 24, height: 0.5,
     }, this.scene);
     roof.position = new Vector3(80, 8.3, -10);
-    roof.material = this._mat('idp_roofMat', [0.5, 0.3, 0.6]);
+    roof.material = this._texturedMat('idp_roofMat', 'shingle_0.5_0.3_0.6', 256,
+      (c, S) => this._paintShingles(c, S, [0.5, 0.3, 0.6]),
+      { uScale: 3, vScale: 2, tint: [1, 1, 1], spec: 0.05 });
 
     const door = MeshBuilder.CreateBox('idp_door', {
       width: 3, depth: 0.2, height: 4,
@@ -939,7 +1053,9 @@ export class WorldBuilder {
     }, this.scene);
     roof.position = new Vector3(cx, 7 + 2.5, cz);
     roof.rotation.y = Math.PI / 4;
-    roof.material = this._mat('academy_roofMat', [0.85, 0.20, 0.20]);
+    roof.material = this._texturedMat('academy_roofMat', 'shingle_0.85_0.20_0.20', 256,
+      (c, S) => this._paintShingles(c, S, [0.85, 0.20, 0.20]),
+      { uScale: 3.5, vScale: 2, tint: [1, 1, 1], spec: 0.06 });
 
     // Bell tower body
     const tower = MeshBuilder.CreateBox('academy_tower', {
@@ -954,7 +1070,9 @@ export class WorldBuilder {
     }, this.scene);
     towerCap.position = new Vector3(cx, 7 + 6 + 1.25, cz);
     towerCap.rotation.y = Math.PI / 4;
-    towerCap.material = this._mat('academy_towerCapMat', [0.85, 0.20, 0.20]);
+    towerCap.material = this._texturedMat('academy_towerCapMat', 'shingle_0.85_0.20_0.20', 256,
+      (c, S) => this._paintShingles(c, S, [0.85, 0.20, 0.20]),
+      { uScale: 2, vScale: 1.5, tint: [1, 1, 1], spec: 0.06 });
 
     // Bell inside tower
     const bell = MeshBuilder.CreateSphere('academy_bell', { diameter: 1.2 }, this.scene);
@@ -1093,7 +1211,9 @@ export class WorldBuilder {
       width: 15, depth: 13, height: 0.4,
     }, this.scene);
     roof.position = new Vector3(cx, 6.2, cz);
-    roof.material = this._mat('lib_roofMat', [0.55, 0.28, 0.20]);
+    roof.material = this._texturedMat('lib_roofMat', 'shingle_0.55_0.28_0.20', 256,
+      (c, S) => this._paintShingles(c, S, [0.55, 0.28, 0.20]),
+      { uScale: 2, vScale: 1.5, tint: [1, 1, 1], spec: 0.05 });
 
     // Parapet walls around roof edge (4 thin flat boxes)
     const parapetH = 0.7, parapetT = 0.35;
@@ -1215,7 +1335,9 @@ export class WorldBuilder {
       width: 17, depth: 13, height: 0.4,
     }, this.scene);
     roof.position = new Vector3(cx, 6.2, cz);
-    roof.material = this._mat('vet_roofMat', [0.82, 0.88, 0.90]);
+    roof.material = this._texturedMat('vet_roofMat', 'shingle_0.82_0.88_0.90', 256,
+      (c, S) => this._paintShingles(c, S, [0.82, 0.88, 0.90]),
+      { uScale: 2.5, vScale: 1.5, tint: [1, 1, 1], spec: 0.06 });
 
     // Green cross sign on front — two crossing box strips
     const crossH = MeshBuilder.CreateBox('vet_crossH', {
@@ -1398,7 +1520,9 @@ export class WorldBuilder {
     }, this.scene);
     shedRoof.position = new Vector3(cx + 14, 4, cz - 10);
     shedRoof.rotation.y = Math.PI / 4;
-    shedRoof.material = this._mat('garden_shedRoofMat', [0.45, 0.28, 0.15]);
+    shedRoof.material = this._texturedMat('garden_shedRoofMat', 'shingle_0.45_0.28_0.15', 256,
+      (c, S) => this._paintShingles(c, S, [0.45, 0.28, 0.15]),
+      { uScale: 2, vScale: 1.5, tint: [1, 1, 1], spec: 0.05 });
 
     // Watering can (cylinder body + small spout box)
     const canBody = MeshBuilder.CreateCylinder('garden_canBody', {
@@ -2060,6 +2184,52 @@ export class WorldBuilder {
     waterMat.alpha = 0.9;
     bowlWater.material = waterMat;
     bowlWater.isPickable = false;
+  }
+
+  // ── Neighborhood walkways / sidewalks ────────────────────────────────
+  // Thin flat box paths (height 0.06, y≈0.13) connecting major areas.
+  // isPickable = false so they don't interfere with click/ray gameplay.
+  // Textured with concrete, tiled along the path's longer axis.
+  _buildPaths() {
+    // Helper: create one path segment (flat box) with concrete texture.
+    // w = cross-width, len = run-length, x/z = center, rotY = 0 (E-W) or
+    // Math.PI/2 (N-S). uScale tiles along width, vScale tiles along length.
+    const makeSeg = (id, x, z, w, len, rotY = 0) => {
+      const seg = MeshBuilder.CreateBox(id, {
+        width: w, depth: len, height: 0.06,
+      }, this.scene);
+      seg.position = new Vector3(x, 0.13, z);
+      seg.rotation.y = rotY;
+      // Tile one texture-cell ≈ every 4 world units along the path length.
+      const uTile = Math.max(1, Math.round(w / 4));
+      const vTile = Math.max(1, Math.round(len / 4));
+      seg.material = this._texturedMat(
+        `${id}_mat`, 'concrete', 256,
+        (c, S) => this._paintConcrete(c, S),
+        { uScale: uTile, vScale: vTile, tint: [1, 1, 1] });
+      seg.isPickable = false;
+    };
+
+    // ── Route 1: My House (≈0,35) north to the Dock bridge (≈-10,55) ──
+    // A short diagonal is approximated with two axis-aligned segments.
+    // Segment A: straight north from the house front along x=0
+    makeSeg('path_house_dock_A',  0, 50, 2.5, 14);   // z 43→57
+    // Segment B: jog west to meet the dock bridge at x=-10
+    makeSeg('path_house_dock_B', -5, 57, 12, 2.5);   // x -1→-11
+    // Segment C: continue north to dock bridge approach
+    makeSeg('path_house_dock_C', -10, 61, 2.5,  8);  // z 57→65
+
+    // ── Route 2: My House (≈0,35) south toward Downtown (≈0,-45) ─────
+    // A long straight path south from the house steps toward the shops.
+    makeSeg('path_house_downtown_A',  0, 12, 2.5, 44); // z -10→34
+    // Short connector linking route 2 into the downtown paved zone
+    makeSeg('path_house_downtown_B',  0, -25, 2.5, 18); // z -34→-16
+
+    // ── Route 3: Neighborhood west toward the Dog Park (≈-70,20) ────
+    // Runs roughly west-east along z≈30 then turns slightly to reach park.
+    makeSeg('path_nbhd_dogpark_A', -28, 30, 2.5, 26); // x -41→-15, z=30
+    makeSeg('path_nbhd_dogpark_B', -50, 26, 2.5, 18); // x -59→-41, angled south
+    makeSeg('path_nbhd_dogpark_C', -57, 20, 2.5, 14); // x -64→-50, hits park fence
   }
 
   // Find which zone (if any) a 3D point falls inside. Returns the zone def

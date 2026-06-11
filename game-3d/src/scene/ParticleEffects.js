@@ -312,6 +312,60 @@ export class ParticleEffects {
       ps.emitRate = 15;
     });
   }
+
+  // ── Level up — multicolored confetti rockets up then rains down ──────
+  // Used for growth-milestone celebrations (puppy → teen → adult). Two
+  // waves: a tall confetti fountain plus a slower glitter cloud, both
+  // auto-dispose. Strong downward gravity makes the confetti rise then fall.
+
+  levelUp(position) {
+    // Wave 1: confetti fountain — bright primaries shoot high, then rain down.
+    burstAt('levelUp_confetti', 60, this._scene, position, 700, ps => {
+      ps.color1    = new Color4(1.0, 0.25, 0.35, 1.0);  // red
+      ps.color2    = new Color4(0.25, 0.55, 1.0,  1.0);  // blue
+      ps.colorDead = new Color4(1.0, 0.95, 0.30, 0.0);  // yellow fade
+
+      ps.minSize = 0.16;
+      ps.maxSize = 0.42;
+      ps.minLifeTime = 0.90;
+      ps.maxLifeTime = 1.60;
+
+      // Mostly upward, slight spread — gravity arcs them back down.
+      ps.direction1 = new Vector3(-3.5, 7.0, -3.5);
+      ps.direction2 = new Vector3( 3.5, 13.0, 3.5);
+
+      ps.gravity = new Vector3(0, -16.0, 0);
+      ps.minEmitPower = 2.5;
+      ps.maxEmitPower = 5.0;
+      ps.minAngularSpeed = -Math.PI * 2;
+      ps.maxAngularSpeed =  Math.PI * 2;
+      ps.updateSpeed = 0.016;
+      ps.emitRate = 200;
+    });
+
+    // Wave 2: lingering glitter cloud in greens/magentas for extra sparkle.
+    burstAt('levelUp_glitter', 30, this._scene, position, 1400, ps => {
+      ps.color1    = new Color4(0.40, 1.0, 0.55, 1.0);  // green
+      ps.color2    = new Color4(1.0,  0.45, 0.95, 1.0);  // magenta
+      ps.colorDead = new Color4(1.0,  1.0,  1.0,  0.0);
+
+      ps.minSize = 0.12;
+      ps.maxSize = 0.30;
+      ps.minLifeTime = 1.00;
+      ps.maxLifeTime = 1.80;
+
+      ps.direction1 = new Vector3(-2.5, 4.0, -2.5);
+      ps.direction2 = new Vector3( 2.5, 8.0,  2.5);
+
+      ps.gravity = new Vector3(0, -9.0, 0);
+      ps.minEmitPower = 1.0;
+      ps.maxEmitPower = 3.0;
+      ps.minAngularSpeed = -Math.PI * 3;
+      ps.maxAngularSpeed =  Math.PI * 3;
+      ps.updateSpeed = 0.016;
+      ps.emitRate = 25;
+    });
+  }
 }
 
 // ─── Internal: convert 0-1 hue to a hex Color4 string (full sat+val) ───────

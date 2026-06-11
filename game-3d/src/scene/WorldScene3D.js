@@ -25,7 +25,8 @@ import { VetClinicInterior } from './VetClinicInterior.js';
 import { initBones } from '../systems/BoneSystem.js';
 import { openTrivia } from '../systems/TriviaSystem.js';
 import { openShopModal } from '../ui/ShopUI.js';
-import { canTrain, markTrained, addXP } from '../systems/DogSystem.js';
+import { canTrain, markTrained, addXP, getStageName, shouldCelebrateStage } from '../systems/DogSystem.js';
+import { FetchDerby } from './FetchDerby.js';
 import { addBones, addCoins } from '../systems/EconomySystem.js';
 import { showZoneLabel, showInteractHint, hideInteractHint, updateDogHUD } from '../ui/HUD.js';
 import { DayNightSystem } from './DayNightSystem.js';
@@ -98,6 +99,7 @@ const SPECIAL_ZONES_3D = [
   { id: 'training',      x: 80,  z: -10, color: [0.78, 0.51, 0.86], icon: '🐾', label: '🐾 Press E to train your puppy' },
   { id: 'npc',           x: 30,  z: -115,color: [1.0, 0.65, 0.30],  icon: '💬', label: '💬 Press E to talk to Ana' },
   { id: 'dogpark_enter', x: -70, z: 20,  color: [0.32, 0.78, 0.40], icon: '🌳', label: '🌳 Press E to visit the Dog Park' },
+  { id: 'fetch_derby',   x: -56, z: 28,  color: [1.00, 0.45, 0.20], icon: '🎾', label: '🎾 Press E for the Fetch Derby!' },
   { id: 'enter_house',   x: 0,   z: 47,  color: [0.85, 0.6, 0.3],   icon: '🏠', label: '🏠 Press E to enter your house' },
   { id: 'academy',       x: -40, z: -40, color: [0.98, 0.95, 0.50], icon: '🏫', label: '🏫 Press E to enter Puppy Academy' },
   { id: 'library',       x: 40,  z: -90, color: [0.75, 0.40, 0.30], icon: '📚', label: '📚 Press E to enter The Library' },
@@ -158,6 +160,11 @@ export class WorldScene3D {
     this._showActive = false;
     this._showState = null;
     this._showSavedCam = null;
+    // Interactive on-map Fetch Derby state (Dog Park)
+    this.fetchDerby = null;
+    this._fetchActive = false;
+    this._fetchState = null;
+    this._fetchSavedCam = null;
     // Smooth camera zoom animation target ({radius, beta} lerped each frame)
     this._camAnim = null;
     // Pet care (Tamagotchi-lite needs system)
@@ -291,6 +298,9 @@ export class WorldScene3D {
     this.dogShowArena = new DogShowArena(this.scene);
     this.dogShowArena.build();
     this.dogShowArena.hide();
+    this.fetchDerby = new FetchDerby(this.scene);
+    this.fetchDerby.build();
+    this.fetchDerby.hide();
 
     // ── Building meshes that should turn see-through when they block
     //    the camera's view of the dog ────────────────────────────────
@@ -477,15 +487,15 @@ export class WorldScene3D {
       this._updateCameraTarget();
       if (this.inInterior) {
         this._updateInteriorInteractables(dt);
-      } else if (this._showActive) {
-        // During the on-map dog show, suppress zone hints/E-prompts; the puppy
-        // is busy performing. SPACE/B drive the routine instead.
+      } else if (this._showActive || this._fetchActive) {
+        // During the on-map dog show / fetch derby, suppress zone hints and
+        // E-prompts; the puppy is busy. Movement (and SPACE/B) drive the game.
         hideInteractHint();
       } else {
         this._updateZoneLabel();
         this._updateInteractables();
       }
-      if (!this._showActive) this._handleInteractPress();
+      if (!this._showActive && !this._fetchActive) this._handleInteractPress();
     }
 
     // Always animate the dog (so idle breathing happens during modals too).
@@ -582,6 +592,15 @@ export class WorldScene3D {
 
     // Pet care drain — runs every frame so needs deplete even during modals.
     if (this.petCare) this.petCare.update(dt);
+
+    // ── Growth-milestone celebration ─────────────────────────────────
+    // XP can tip the dog into a new stage from many places (training,
+    // mini-games, treats). Rather than instrument every addXP call site we
+    // watch the stage here and throw an in-world party exactly once per
+    // change (shouldCelebrateStage tracks dog._celebratedStage for us).
+    if (this.gameState.currentDog && shouldCelebrateStage(this.gameState.currentDog)) {
+      this._celebrateGrowth(this.gameState.currentDog.stage);
+    }
 
     // Agility checkpoint detection when course is active.
     if (this._agilityActive && this._agilityCheckpoints && this._agilityUI) {
@@ -691,6 +710,11 @@ export class WorldScene3D {
     // On-map dog show stage machine (trot → tricks → pose).
     if (this._showActive) {
       this._updateDogShow(dt);
+    }
+
+    // On-map Fetch Derby state machine (toBall → toHome, repeat).
+    if (this._fetchActive) {
+      this._updateFetchDerby(dt);
     }
   }
 
@@ -1105,6 +1129,11 @@ export class WorldScene3D {
       this._startDogShow();
       return;
     }
+    // Fetch Derby — walk-the-field fetch game in the Dog Park (no modal).
+    if (zone.id === 'fetch_derby') {
+      this._startFetchDerby();
+      return;
+    }
     // Vet clinic is a walkable interior scene — no modal overlay.
     if (zone.id === 'vetclinic') {
       this._enterVet();
@@ -1180,6 +1209,23 @@ export class WorldScene3D {
         this.modalOpen = false;
         break;
     }
+  }
+
+  // ── Growth-milestone celebration ──────────────────────────────────────
+  // Fired once when the dog grows into a new stage (puppy → teen → adult).
+  // Big confetti + sparkle burst over the pup, a cheerful banner, and a
+  // little coin/bone reward to mark the occasion. Saves so the celebrated
+  // stage sticks across reloads (it never repeats — see shouldCelebrateStage).
+  _celebrateGrowth(newStage) {
+    if (this.particles) {
+      this.particles.achievementPop(this.dog.position);
+      this.particles.levelUp(this.dog.position);
+    }
+    showZoneLabel('🎉 Your puppy grew into a ' + getStageName(newStage) + '!');
+    addCoins(this.gameState, 25);
+    addBones(this.gameState, 5);
+    if (this.petCare) this.petCare.onHappened();
+    if (this._saveSoon) this._saveSoon();
   }
 
   // ── On-map Dog Show ───────────────────────────────────────────────────
@@ -1336,6 +1382,105 @@ export class WorldScene3D {
     if (this._showSavedCam) {
       this._camAnim = { ...this._showSavedCam };
       this._showSavedCam = null;
+    }
+  }
+
+  // ── On-map Fetch Derby ─────────────────────────────────────────────────
+  // A walk-the-field fetch game in the outdoor Dog Park (no pop-up). Each
+  // round: a bright ball is thrown to a random spot — run the puppy to it
+  // (reach = "fetch!") then carry it back to the glowing green home pad.
+  // Four rounds; the faster the total time, the better the ribbon/reward.
+  // Mirrors the on-map Dog Show: state flags, camera save/restore via
+  // _camAnim, distance-cancel, and an Esc-cancel branch.
+  _startFetchDerby() {
+    if (this._fetchActive) return;
+    this.fetchDerby.show();
+
+    // Swoop the camera down to puppy height (remember where it was).
+    this._fetchSavedCam = { radius: this.camera.radius, beta: this.camera.beta };
+    this._camAnim = { radius: 18, beta: 1.18 };
+
+    this._fetchActive = true;
+    this._fetchState = 'toBall';      // 'toBall' → 'toHome' → (repeat) → done
+    this._fetchRound = 0;
+    this._fetchRoundTarget = 4;
+    this._fetchElapsed = 0;
+
+    this.fetchDerby.throwBall();
+    showZoneLabel('🎾 Fetch Derby! Run to the ball, then bring it home!');
+  }
+
+  _updateFetchDerby(dt) {
+    const C = this.fetchDerby.getFieldCenter();
+
+    // Wandering far from the field cancels the derby and restores the camera.
+    const ddx = this.dog.position.x - C.x;
+    const ddz = this.dog.position.z - C.z;
+    if (ddx * ddx + ddz * ddz > 42 * 42) {
+      this._endFetchDerby(null);
+      showZoneLabel('🎾 Fetch Derby cancelled — come back any time!');
+      return;
+    }
+
+    this._fetchElapsed += dt;
+    this.fetchDerby.update(dt);
+
+    if (this._fetchState === 'toBall') {
+      const b = this.fetchDerby.getBallPosition();
+      const dx = b.x - this.dog.position.x;
+      const dz = b.z - this.dog.position.z;
+      if (dx * dx + dz * dz < 2.4 * 2.4) {
+        // Caught the ball — hide it and head for home.
+        this.fetchDerby.hideBall();
+        this._fetchState = 'toHome';
+        if (this.particles) this.particles.bonePop(this.dog.position);
+        showZoneLabel('🐾 Good catch! Now bring it home! 🏠');
+      }
+    } else if (this._fetchState === 'toHome') {
+      const h = this.fetchDerby.getHomePosition();
+      const dx = h.x - this.dog.position.x;
+      const dz = h.z - this.dog.position.z;
+      if (dx * dx + dz * dz < 2.6 * 2.6) {
+        // Returned — that's one round done.
+        this._fetchRound++;
+        if (this.particles) this.particles.heartBurst(this.dog.position);
+        if (this._fetchRound >= this._fetchRoundTarget) {
+          this._endFetchDerby(this._fetchElapsed);
+        } else {
+          this._fetchState = 'toBall';
+          this.fetchDerby.throwBall();
+          showZoneLabel(`🎾 Round ${this._fetchRound} of ${this._fetchRoundTarget} — go again!`);
+        }
+      }
+    }
+  }
+
+  _endFetchDerby(totalTime) {
+    this._fetchActive = false;
+    this._fetchState = null;
+    this.fetchDerby.hide();
+    this._restoreFetchCam();
+
+    if (totalTime == null) return;   // cancelled — no reward
+
+    // Faster total time across all rounds → better reward tier.
+    const fast = totalTime < 30, ok = totalTime < 50;
+    const coins = fast ? 45 : ok ? 28 : 15;
+    const bones = fast ? 9  : ok ? 5  : 3;
+    if (this.particles) this.particles.achievementPop(this.dog.position);
+    addCoins(this.gameState, coins);
+    addBones(this.gameState, bones);
+    if (this.petCare) this.petCare.onTrained();   // fetch counts as training
+    checkAchievements(this.gameState, { event: 'fetch_complete', value: this._fetchRoundTarget });
+    const tier = fast ? '🥇 Speedy Retriever!' : ok ? '🥈 Great Fetcher!' : '🥉 Good Dog!';
+    showZoneLabel(`${tier}  +${coins}🪙 +${bones}🦴`);
+    if (this._saveSoon) this._saveSoon();
+  }
+
+  _restoreFetchCam() {
+    if (this._fetchSavedCam) {
+      this._camAnim = { ...this._fetchSavedCam };
+      this._fetchSavedCam = null;
     }
   }
 
@@ -1854,6 +1999,13 @@ export class WorldScene3D {
     if (this._showActive) {
       this._endDogShow(null);
       showZoneLabel('🐾 Dog show cancelled — come back any time!');
+      return;
+    }
+
+    // 4c. Fetch Derby — cancel the on-map game and restore the camera
+    if (this._fetchActive) {
+      this._endFetchDerby(null);
+      showZoneLabel('🎾 Fetch Derby cancelled — come back any time!');
       return;
     }
 

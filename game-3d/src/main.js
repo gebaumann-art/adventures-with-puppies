@@ -2,13 +2,16 @@
 // Boots the Babylon scene after the player picks (or creates) a profile.
 import { WorldScene3D } from './scene/WorldScene3D.js';
 import { createDog } from './systems/DogSystem.js';
-import { showHUD, updateDogHUD } from './ui/HUD.js';
+import { showHUD, updateDogHUD, updateStreakDisplay, updateDailyChallengeBtn } from './ui/HUD.js';
 import { refreshHUD } from './systems/EconomySystem.js';
 import { ACCESSORIES } from './data/accessories.js';
 import { openShopModal } from './ui/ShopUI.js';
 import { openDogCardModal } from './ui/DogCard.js';
 import { openChat as openChatUI, closeChat as closeChatUI, openFriendsPanel } from './ui/ChatUI.js';
 import { showProfilePicker, saveProfileState } from './ui/ProfilePicker.js';
+import { openDailyChallenge } from './ui/ProgressUI.js';
+import { openCollection } from './ui/CollectionUI.js';
+import { getDailyChallenge, isDailyChallengeComplete, getStreakCount } from './systems/AcademySystem.js';
 
 // Expose accessory data so DogCard.js can render owned accessory icons.
 window._accessoriesData = { ACCESSORIES };
@@ -59,6 +62,10 @@ function startGame(gameState) {
   showHUD();
   refreshHUD(gameState);
   updateDogHUD(gameState);
+  // Surface the learning streak (badge hides itself when 0) and reflect whether
+  // today's daily challenge is already done on the HUD button.
+  updateStreakDisplay(getStreakCount(gameState));
+  updateDailyChallengeBtn(isDailyChallengeComplete(gameState));
 
   if (world) {
     world.dispose();
@@ -78,6 +85,18 @@ function startGame(gameState) {
     openDogCardModal(gameState);
   };
   window.closeModal = () => world.closeModal();
+
+  // ── Daily Challenge (📅 Daily HUD button) ─────────────────────────────────
+  window.openDailyChallenge = () => {
+    world.modalOpen = true;
+    openDailyChallenge(gameState, getDailyChallenge(gameState), () => world.closeModal());
+  };
+
+  // ── Sticker Book / Collection (📖 HUD button) ─────────────────────────────
+  window.openCollection = () => {
+    world.modalOpen = true;
+    openCollection(gameState, () => world.closeModal());
+  };
 
   // ── Chat (NPC + multiplayer demo) ─────────────────────────────────
   // partner = { name, avatar, dialogPool, kind? }
