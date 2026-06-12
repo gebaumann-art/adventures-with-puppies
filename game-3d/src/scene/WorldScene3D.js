@@ -1727,6 +1727,8 @@ export class WorldScene3D {
     this.camera.target.set(this.dog.position.x, this.dog.position.y + 1.5, this.dog.position.z);
     this.bounds = 15; // matches ROOM_HALF - 1 from HouseInterior
 
+    // Pause day/night so it stops overriding the interior's dimmed lights.
+    if (this.dayNight) this.dayNight.stop();
     this.inInterior = true;
     hideInteractHint();
     showZoneLabel('🏠 My House (Inside)');
@@ -1753,6 +1755,8 @@ export class WorldScene3D {
     this.dog.position.set(0, 0, 50);
     this.dog.rotation.y = 0;
 
+    // Resume day/night cycle now that outdoor lights are restored.
+    if (this.dayNight) this.dayNight.start();
     this.inInterior = false;
     this._exitHintShown = false;
     hideInteractHint();
@@ -1790,6 +1794,7 @@ export class WorldScene3D {
     this.camera.target.set(this.dog.position.x, this.dog.position.y + 1.5, this.dog.position.z);
     this.bounds = 13; // ROOM_HALF - 1
 
+    if (this.dayNight) this.dayNight.stop();
     this.inInterior = true;
     hideInteractHint();
     showZoneLabel('🏥 Vet Clinic (Inside)');
@@ -1815,6 +1820,7 @@ export class WorldScene3D {
     this.dog.position.set(-80, 0, -52);
     this.dog.rotation.y = 0;
 
+    if (this.dayNight) this.dayNight.start();
     this.inInterior = false;
     this._exitHintShown = false;
     hideInteractHint();
@@ -2229,6 +2235,7 @@ export class WorldScene3D {
     this.camera.target.set(this.dog.position.x, this.dog.position.y + 1.5, this.dog.position.z);
     this.bounds = 15; // ROOM_HALF - 1
 
+    if (this.dayNight) this.dayNight.stop();
     this.inInterior = true;
     hideInteractHint();
     showZoneLabel('🏋️ Indoor Dog Park (Inside)');
@@ -2253,6 +2260,7 @@ export class WorldScene3D {
     this.dog.position.set(80, 0, 5);
     this.dog.rotation.y = Math.PI;
 
+    if (this.dayNight) this.dayNight.start();
     this.inInterior = false;
     this._exitHintShown = false;
     hideInteractHint();
