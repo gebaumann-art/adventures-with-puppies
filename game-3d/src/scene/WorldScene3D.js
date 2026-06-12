@@ -291,10 +291,10 @@ export class WorldScene3D {
     // Particle effects
     this.particles = new ParticleEffects(this.scene);
 
-    // Agility course + dog show arena (build but hide until player enters zone)
+    // Agility course + dog show arena — both stand on the map as visible
+    // landmarks at all times (the run/show just lights up their interactive bits).
     this.agilityCourse = new AgilityCourseMesh(this.scene);
     this.agilityCourse.build();
-    this.agilityCourse.hide();
     this.dogShowArena = new DogShowArena(this.scene);
     this.dogShowArena.build();
     // Arena stays visible on the map as a landmark (build() already tucks away
@@ -617,7 +617,7 @@ export class WorldScene3D {
             this._agilityUI.hide();
             this._agilityUI = null;
           }
-          this.agilityCourse.hide();
+          this.agilityCourse.endRun();
           this._restoreAgilityCam();
           showZoneLabel('🐾 Agility run cancelled — come back any time!');
           return;
@@ -1494,9 +1494,8 @@ export class WorldScene3D {
   }
 
   _startAgilityRun() {
-    this.agilityCourse.show();
-    // Reset knocked bars from any previous run; collect hurdle positions for
-    // the SPACE-hop jump mechanic.
+    // The course is always on the map; just reset knocked bars from any previous
+    // run and collect hurdle positions for the SPACE-hop jump mechanic.
     if (this.agilityCourse.resetBars) this.agilityCourse.resetBars();
     this._agilityHurdles = (this.agilityCourse.getHurdles
       ? this.agilityCourse.getHurdles() : []).map(h => ({ ...h, done: false }));
@@ -1525,7 +1524,7 @@ export class WorldScene3D {
       this._agilityActive = false;
       ui.hide();                  // dismiss the top bar AND result overlay
       this._agilityUI = null;
-      this.agilityCourse.hide();
+      this.agilityCourse.endRun();
       this._restoreAgilityCam();
       const coinReward = stars * 15;
       addBones(this.gameState, stars * 2);
@@ -1999,7 +1998,7 @@ export class WorldScene3D {
         this._agilityUI.hide();
         this._agilityUI = null;
       }
-      if (this.agilityCourse) this.agilityCourse.hide();
+      if (this.agilityCourse) this.agilityCourse.endRun();
       this._restoreAgilityCam();
       return;
     }

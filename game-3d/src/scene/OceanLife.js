@@ -311,12 +311,12 @@ export class OceanLife {
         speed: this._rand(4.5, 7.0),
         swimPhase: this._rand(0, Math.PI * 2),
         state: 'swimming',      // 'swimming' | 'breaching'
-        breachTimer: this._rand(10, 22), // seconds until next breach
+        breachTimer: this._rand(4, 10), // seconds until next big breach
         breachU: 0,             // 0..1 progress through breach arc
         breachDuration: 2.2,
         breachStartX: 0,
         breachStartZ: 0,
-        hopTimer: this._rand(4, 7), // seconds until next porpoising hop
+        hopTimer: this._rand(2, 5), // seconds until next porpoising hop
         hopU: -1,               // -1 = not hopping, else 0..1 over 1s
       });
     }
@@ -381,10 +381,12 @@ export class OceanLife {
           dp.hopU += dt; // 1-second hop
           if (dp.hopU >= 1.0) {
             dp.hopU = -1;
-            dp.hopTimer = this._rand(4, 7);
+            dp.hopTimer = this._rand(2, 5);
           } else {
-            hopY = Math.sin(Math.PI * dp.hopU) * 0.8;
-            hopPitch = Math.cos(Math.PI * dp.hopU) * 0.20; // nose up, then down
+            // Arc up to ~+2.0 so the porpoise clearly breaks the surface
+            // (water sits at y≈0.25; the dolphin rests at y≈-1.0).
+            hopY = Math.sin(Math.PI * dp.hopU) * 2.0;
+            hopPitch = Math.cos(Math.PI * dp.hopU) * 0.30; // nose up, then down
           }
         } else {
           dp.hopTimer -= dt;
@@ -427,8 +429,8 @@ export class OceanLife {
           dp.breachU = 1.0;
           dp.state = 'swimming';
           dp.swimPhase = 0;
-          dp.breachTimer = this._rand(10, 22);
-          dp.hopTimer = this._rand(4, 7);
+          dp.breachTimer = this._rand(4, 10);
+          dp.hopTimer = this._rand(2, 5);
           dp.root.position.y = -1.0;
           dp.root.rotation.z = 0;
           dp.root.rotation.x = 0;

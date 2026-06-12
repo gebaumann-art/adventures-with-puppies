@@ -429,9 +429,24 @@ export class WorldBuilder {
     const wm = this._texturedMat(
       'waterMat', 'water', 512, (c, S) => this._paintWater(c, S),
       { uScale: 18, vScale: 6, tint: [1, 1, 1], spec: 0.35 });
-    wm.alpha = 0.88;
+    wm.alpha = 0.82;   // a touch clearer so fish/dolphins show through the surface
     water.material = wm;
     water.isPickable = false;
+
+    // Animate the water: slowly drift the texture so the surface looks like it's
+    // gently flowing, plus a tiny vertical swell. Uses wall-clock time so it
+    // animates smoothly regardless of the engine's frame delta.
+    const tex = wm.diffuseTexture;
+    const baseY = water.position.y;
+    let lastT = performance.now();
+    this.scene.onBeforeRenderObservable.add(() => {
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - lastT) / 1000);  // clamp to avoid big jumps
+      lastT = now;
+      tex.uOffset += dt * 0.015;   // slow lateral drift
+      tex.vOffset += dt * 0.010;   // gentle roll toward shore
+      water.position.y = baseY + Math.sin(now * 0.0008) * 0.05;  // soft swell
+    });
   }
 
   // ── Wooden dock pier extending into the ocean ─────────────────────────

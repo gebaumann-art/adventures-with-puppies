@@ -109,6 +109,15 @@ export class AgilityCourseMesh {
     this._meshes.forEach(m => { m.setEnabled(false); });
   }
 
+  // Wrap up an active run WITHOUT hiding the course — it's a permanent landmark
+  // you can see (and re-run) any time. Settle knocked bars, stop the physics
+  // observer, and stand every bar back up on its posts.
+  endRun() {
+    this._hurdles.forEach(h => { if (h.anim) this._settleBar(h); });
+    this._removeKnockObserver();
+    this.resetBars();
+  }
+
   // Returns the ordered course checkpoints. Each entry keeps {x, z} (consumed
   // by WorldScene3D) plus id/radius/label for richer consumers.
   getCheckpoints() {
