@@ -282,6 +282,9 @@ export class WorldScene3D {
     // Day/night cycle
     this.dayNight = new DayNightSystem(this.scene, hemi, sun);
     this.dayNight.start();
+    this._wasNight = false;
+    // Expose current game hour for ChatUI time-of-day greetings
+    window._gameHour = this.dayNight.getHour();
 
     // Seasons
     this.seasons = new SeasonManager(this.scene);
@@ -575,7 +578,22 @@ export class WorldScene3D {
     }
 
     // Day/night and season updates (outdoor only).
-    if (this.dayNight) this.dayNight.update(dt);
+    if (this.dayNight) {
+      this.dayNight.update(dt);
+      window._gameHour = this.dayNight.getHour();
+
+      // Toggle NPCs at dusk/dawn transitions
+      const isNight = this.dayNight.isNight();
+      if (isNight !== this._wasNight) {
+        this._wasNight = isNight;
+        if (this.npcManager) this.npcManager.setVisible(!isNight);
+        if (isNight) {
+          showZoneLabel('🌙 Everyone has gone home for the night...');
+        } else {
+          showZoneLabel('☀️ Good morning! The neighborhood is waking up!');
+        }
+      }
+    }
     if (this.seasons) this.seasons.update(dt);
 
     // Ocean life (fish + dolphins) — always animating.

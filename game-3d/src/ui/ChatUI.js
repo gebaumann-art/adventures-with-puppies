@@ -5,6 +5,45 @@
 
 const TYPING_DELAY_MS = 600;
 
+// Short acknowledgment phrases sent before the main reply (~20% of the time)
+const ACK_PHRASES = [
+  'Ooh! 😊', 'Oh wow!', 'Hehe! 🐾', "That's fun!", 'Hmm... 🤔',
+  'Oh really?', 'Cool!', '🐾!', 'Yep!', 'I know, right?',
+];
+
+// Global keyword → response overrides (checked across ALL NPCs first)
+const GLOBAL_KEYWORDS = {
+  'hello hi hey howdy': [
+    'Hey there! Great to see you! 😊',
+    'Hi hi hi! 🐾 How are you and your puppy doing?',
+    'Oh hello! You came at just the right time!',
+  ],
+  'bye goodbye see ya': [
+    'Bye! Come back soon! 💕',
+    'See ya later! Give your puppy a big hug from me! 🐾',
+    'Goodbye! Take care of that sweet pup! 🐶',
+  ],
+  'bone bones': [
+    'Bones are SO important for dogs — they love chewing them!',
+    'Have you found all the hidden bones around the neighborhood? 🦴',
+    'Ooh! Bones are scattered all over if you look carefully! 🦴',
+  ],
+  'puppy dog pup': [
+    'Your puppy is absolutely adorable! 🐶💕',
+    'Dogs are the most loyal friends in the world!',
+    'Give your pup a belly rub for me! 🐾',
+  ],
+  'play game': [
+    'The agility course in the dog park is so much fun — have you tried it? 🏃',
+    'The Fetch Derby is exciting! Orange ball, go go go! 🟠',
+    'Mini-games are the best way to earn bones and coins! 💰',
+  ],
+  'train training': [
+    'Training helps puppies learn good habits and grow faster! ⭐',
+    'The indoor dog park is perfect for training sessions! 🐾',
+  ],
+};
+
 // Demo "friends" for the multiplayer panel — Puppy Dog Pals-themed.
 const DEMO_FRIENDS = [
   {
@@ -144,6 +183,30 @@ function ensureOverlay() {
       letter-spacing: 4px;
       font-weight: 800;
     }
+    #chat-suggestions {
+      display: flex;
+      gap: 6px;
+      padding: 8px 12px 4px;
+      background: #f5f9ff;
+      flex-wrap: wrap;
+      border-top: 1px solid #e3f2fd;
+    }
+    .chat-suggestion-chip {
+      background: white;
+      border: 2px solid #90caf9;
+      color: #1565c0;
+      border-radius: 16px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: 'Nunito', sans-serif;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .chat-suggestion-chip:hover {
+      background: #e3f2fd;
+      border-color: #1565c0;
+    }
     #chat-input-row {
       display: flex;
       gap: 8px;
@@ -268,6 +331,7 @@ function ensureOverlay() {
       <button id="chat-close" title="Close chat">✕</button>
     </div>
     <div id="chat-messages"></div>
+    <div id="chat-suggestions"></div>
     <div id="chat-input-row">
       <input id="chat-input" type="text" placeholder="Type a friendly message..." maxlength="120" />
       <button id="chat-send">Send</button>
@@ -316,7 +380,7 @@ export function openChat(partner, onClose) {
   // If chat is already open with someone, close it first.
   if (_currentSession) closeChat();
 
-  _currentSession = { partner, onClose, messages: [] };
+  _currentSession = { partner, onClose, messages: [], _lastUserMsg: '' };
 
   document.getElementById('chat-avatar').textContent = partner.avatar || '🐶';
   document.getElementById('chat-name-text').textContent = partner.name || 'Friend';
@@ -326,14 +390,41 @@ export function openChat(partner, onClose) {
   const list = document.getElementById('chat-messages');
   list.innerHTML = '';
 
+  // Populate suggestion chips
+  const suggestEl = document.getElementById('chat-suggestions');
+  if (suggestEl) {
+    suggestEl.innerHTML = '';
+    const chips = partner.suggestions || [
+      'Tell me a fun fact! 🐾', 'What are you doing? 😊', 'Want to play? 🎮', 'Bye! 👋',
+    ];
+    chips.forEach((text) => {
+      const btn = document.createElement('button');
+      btn.className = 'chat-suggestion-chip';
+      btn.textContent = text;
+      btn.addEventListener('click', () => _sendSuggestion(text));
+      suggestEl.appendChild(btn);
+    });
+  }
+
   document.getElementById('chat-overlay').classList.remove('hidden');
   document.getElementById('chat-input').value = '';
   // Focus the input after a tick so the click event finishes propagating.
   setTimeout(() => document.getElementById('chat-input').focus(), 20);
 
-  // Initial greeting from the partner (first dialog line).
-  const greeting = (partner.dialogPool && partner.dialogPool[0])
-    || 'Hello! 🐾';
+  // Time-of-day greeting: use window._gameHour if exposed by the world.
+  const hour = typeof window._gameHour === 'number' ? window._gameHour : -1;
+  let greeting;
+  if (partner.greetings) {
+    // NPC has custom time-aware greetings: { morning, afternoon, evening, night, default }
+    if (hour >= 6  && hour < 12) greeting = partner.greetings.morning;
+    else if (hour >= 12 && hour < 18) greeting = partner.greetings.afternoon;
+    else if (hour >= 18 && hour < 20) greeting = partner.greetings.evening;
+    else if (hour >= 20 || hour < 6)  greeting = partner.greetings.night;
+    greeting = greeting || partner.greetings.default;
+  }
+  if (!greeting) {
+    greeting = (partner.dialogPool && partner.dialogPool[0]) || 'Hello! 🐾';
+  }
   _addMessage('them', greeting);
 }
 
@@ -388,6 +479,14 @@ function _sendCurrentInput() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
+  if (_currentSession) _currentSession._lastUserMsg = text;
+  _addMessage('me', text);
+  _scheduleReply();
+}
+
+function _sendSuggestion(text) {
+  if (!_currentSession) return;
+  _currentSession._lastUserMsg = text;
   _addMessage('me', text);
   _scheduleReply();
 }
@@ -401,6 +500,49 @@ function _addMessage(who, text, isTyping = false) {
   row.innerHTML = `<div class="chat-bubble">${_escape(text)}</div>`;
   list.appendChild(row);
   list.scrollTop = list.scrollHeight;
+}
+
+function _pickReply() {
+  if (!_currentSession) return '🐾';
+  const partner = _currentSession.partner;
+  const userText = (_currentSession._lastUserMsg || '').toLowerCase();
+
+  // 1) Check NPC-specific keyword map
+  if (partner.keywordMap && userText) {
+    for (const [keyStr, responses] of Object.entries(partner.keywordMap)) {
+      const keys = keyStr.split(' ');
+      if (keys.some((k) => userText.includes(k))) {
+        const pool = Array.isArray(responses) ? responses : [responses];
+        return pool[Math.floor(Math.random() * pool.length)];
+      }
+    }
+  }
+
+  // 2) Check global keyword overrides
+  if (userText) {
+    for (const [keyStr, responses] of Object.entries(GLOBAL_KEYWORDS)) {
+      const keys = keyStr.split(' ');
+      if (keys.some((k) => userText.includes(k))) {
+        return responses[Math.floor(Math.random() * responses.length)];
+      }
+    }
+  }
+
+  // 3) Random from dialog pool (avoid repeating the last reply)
+  const pool = partner.dialogPool || ['🐾'];
+  const prev = _currentSession._lastReply;
+  let pick;
+  if (pool.length > 1) {
+    let attempts = 0;
+    do {
+      pick = pool[Math.floor(Math.random() * pool.length)];
+      attempts++;
+    } while (pick === prev && attempts < 6);
+  } else {
+    pick = pool[0];
+  }
+  _currentSession._lastReply = pick;
+  return pick;
 }
 
 function _scheduleReply() {
@@ -417,9 +559,21 @@ function _scheduleReply() {
       if (typingRow) typingRow.remove();
     }
     if (!_currentSession) return;
-    const pool = _currentSession.partner.dialogPool || ['🐾'];
-    const reply = pool[Math.floor(Math.random() * pool.length)];
-    _addMessage('them', reply);
+    const reply = _pickReply();
+
+    // ~22% chance of a short acknowledgment before the main reply
+    const useAck = Math.random() < 0.22;
+    if (useAck) {
+      const ack = ACK_PHRASES[Math.floor(Math.random() * ACK_PHRASES.length)];
+      _addMessage('them', ack);
+      _typingTimer = setTimeout(() => {
+        _typingTimer = null;
+        if (!_currentSession) return;
+        _addMessage('them', reply);
+      }, 700);
+    } else {
+      _addMessage('them', reply);
+    }
   }, TYPING_DELAY_MS);
 }
 
