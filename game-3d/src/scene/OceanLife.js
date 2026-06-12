@@ -9,10 +9,12 @@ import {
   TransformNode,
 } from '@babylonjs/core';
 
-// Ocean zone bounds (world coords)
+// Ocean zone bounds (world coords).
+// OCEAN_MIN_Z must be north of the dock's north wall (z=115) so fish and
+// dolphins never swim through the dock platform.
 const OCEAN_MIN_X = -80;
 const OCEAN_MAX_X =  80;
-const OCEAN_MIN_Z =  90;
+const OCEAN_MIN_Z = 120;
 const OCEAN_MAX_Z = 155;
 
 // Fish swim depth (y)
